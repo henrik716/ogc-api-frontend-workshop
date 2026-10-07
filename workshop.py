@@ -6,6 +6,7 @@ running docker compose), kept out of the notebook so its cells stay about
 the things participants actually decide: their data and their metadata.
 """
 
+import copy
 import json
 import os
 import re
@@ -86,7 +87,7 @@ def wait_until_ready(timeout: int = 120) -> None:
     while time.time() < deadline:
         try:
             get_json("/collections")
-            urllib.request.urlopen("http://localhost:3000/", timeout=30)
+            urllib.request.urlopen("http://localhost:3000/collections?f=json", timeout=30)  # via the frontend
             print(" ready.")
             return
         except Exception:
@@ -216,6 +217,24 @@ def load_into_postgis(layers: list[dict]) -> None:
     print(f"✓ Loaded {len(layers)} layer(s) into PostGIS: " + ", ".join(table_name(l["layer"]) for l in layers))
 
 
+def prepare_data(gpkg, source: str) -> list[dict]:
+    """Step 2 in one go: read the GeoPackage, show what's in it, and — for
+    SOURCE = "postgis" — (re)load it into the database, so that can't be forgotten."""
+    if source not in SOURCES:
+        raise SystemExit(f"✗ SOURCE must be one of {SOURCES}, not '{source}'.")
+    layers = inspect_gpkg(gpkg)
+    describe(layers)
+    if source == "postgis":
+        load_into_postgis(layers)
+    return layers
+
+
+def download() -> None:
+    print("Downloading Kartverket's backend and frontend (about 650 MB). "
+          "The first time takes a minute or two, so feel free to read ahead.", flush=True)
+    compose("build")
+
+
 # ------------------------------------------------------------------
 # Building pygeoapi-config.yml
 #
@@ -296,10 +315,29 @@ def build_config(dataset: dict, collections: dict, layers: list[dict], source: s
                 "layer": l["layer"],
                 "id_field": id_field,
             }
+        storage_crs = CRS84 if l["epsg"] == 4326 else epsg_uri(l["epsg"])
         provider["crs"] = [CRS84] + [epsg_uri(c) for c in OUTPUT_EPSG]
-        provider["storage_crs"] = CRS84 if l["epsg"] == 4326 else epsg_uri(l["epsg"])
+        provider["storage_crs"] = storage_crs
         if title_field:
             provider["title_field"] = title_field
+        providers = [provider]
+
+        if source == "postgis":
+            # OGC API - Tiles: vector tiles cut on the fly from the same table
+            # (pygeoapi's built-in MVT-postgresql provider, as in the starter kit).
+            providers.append(
+                {
+                    "type": "tile",
+                    "name": "MVT-postgresql",
+                    "data": copy.deepcopy(provider["data"]),  # a copy, so the YAML has no &id001 anchors
+                    "id_field": id_field,
+                    "table": provider["table"],
+                    "geom_field": "geometry",
+                    "storage_crs": storage_crs,
+                    "options": {"zoom": {"min": 0, "max": 18}},
+                    "format": {"name": "pbf", "mimetype": "application/vnd.mapbox-vector-tile"},
+                }
+            )
 
         resources[l["id"]] = {
             "type": "collection",
@@ -307,7 +345,7 @@ def build_config(dataset: dict, collections: dict, layers: list[dict], source: s
             "description": _lang(meta.get("description", f"Features from layer {l['layer']}")),
             "keywords": _keywords(meta.get("keywords", [])),
             "extents": {"spatial": {"bbox": l["bbox"], "crs": CRS84}},
-            "providers": [provider],
+            "providers": providers,
         }
 
     return {
@@ -373,10 +411,10 @@ def write_config(config: dict) -> None:
     uses_postgis = any(
         p["name"] == "PostgreSQL" for r in config["resources"].values() for p in r.get("providers", [])
     )
-    # Read by docker-compose.yml. Public URLs: the backend writes its own into
-    # every link, and the frontend hands its own to the browser.
+    # Read by docker-compose.yml. PUBLIC_URL is the frontend's address, which
+    # pygeoapi also uses for its links (the frontend proxies them through).
     # COMPOSE_PROFILES=postgis makes every `docker compose` command include the database.
-    env = f"FRONTEND_URL={public_url(3000)}\nBACKEND_URL={public_url(5001)}\n"
+    env = f"PUBLIC_URL={public_url(3000)}\n"
     if uses_postgis:
         env += "COMPOSE_PROFILES=postgis\n"
     ENV_FILE.write_text(env, encoding="utf-8")
@@ -404,15 +442,17 @@ def stop() -> None:
 def show_links(layers: list[dict]) -> None:
     from IPython.display import Markdown, display
 
-    frontend, backend = public_url(3000), public_url(5001)
+    # One address for everything: the frontend serves the pages and passes
+    # every other request (?f=json, /openapi, tiles, ...) on to pygeoapi.
+    base = public_url(3000)
     rows = [
-        ("Landing page (frontend)", frontend),
-        ("The API itself (pygeoapi)", backend),
-        ("API documentation (OpenAPI)", f"{backend}/openapi?f=html"),
+        ("Landing page", base),
+        ("The API as JSON", f"{base}/?f=json"),
+        ("API documentation (OpenAPI)", f"{base}/openapi?f=html"),
     ]
     for l in layers:
         rows += [
-            (f"`{l['id']}` — collection page", f"{frontend}/collections/{l['id']}"),
-            (f"`{l['id']}` — features as GeoJSON", f"{backend}/collections/{l['id']}/items?f=json"),
+            (f"`{l['id']}`: collection page", f"{base}/collections/{l['id']}"),
+            (f"`{l['id']}`: features as GeoJSON", f"{base}/collections/{l['id']}/items?f=json"),
         ]
     display(Markdown("| | |\n|---|---|\n" + "\n".join(f"| {a} | <{b}> |" for a, b in rows)))

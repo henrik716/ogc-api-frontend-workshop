@@ -23,7 +23,7 @@ Layers need a CRS with an EPSG code. Any EPSG code works, and the API reprojects
 Step 2 of the notebook has a `SOURCE` setting:
 
 - `"gpkg"` (default): the API reads the GeoPackage directly. Simplest, with no database.
-- `"postgis"`: the notebook starts a PostGIS database in the Codespace, loads the GeoPackage into it with `ogr2ogr`, and the API reads from there. This is the [recommended setup](https://kartverket.github.io/ogcapi-docs/docs/ogcapi-skip) for real services at Kartverket, and the config then matches the starter kit's. It also turns on the starter kit's processes, so the frontend offers GeoPackage/CSV downloads.
+- `"postgis"`: the notebook starts a PostGIS database in the Codespace, loads the GeoPackage into it with `ogr2ogr`, and the API reads from there. This is the [recommended setup](https://kartverket.github.io/ogcapi-docs/docs/ogcapi-skip) for real services at Kartverket, and the config then matches the starter kit's. It also adds vector tiles (OGC API – Tiles) and turns on the starter kit's processes, so the frontend offers GeoPackage/CSV downloads.
 
 No database of your own is needed for either option.
 
@@ -56,4 +56,4 @@ Prefer a terminal? `docker compose up -d --build` and `docker compose down` work
 - **Images:** the base images are the same ones the starter kit pins: `datadeling-ogcapi-pygeoapi:pygeoapi-v0.5.1` and `datadeling-ogcapi-frontend:frontend-v0.5.1`, by digest. Both are public, so no `docker login` is needed.
 - **Map view:** the frontend image is built with a maximum map extent covering Norway, so data elsewhere will display, but the initial map view is clamped to Norway.
 - **PostGIS mode:** the database runs in the Codespace with fixed workshop credentials (`postgres`/`qwer1234`, as in the starter kit). Its data survives `stop()` in a Docker volume. `docker compose --profile postgis down -v` wipes it.
-- **Ports:** Codespaces ports are private by default. Participants who want to open their API in QGIS or share it make port 5001 public in the Ports tab (step 8 in the notebook).
+- **Ports:** Codespaces ports are private by default. Participants who want to open their API in QGIS or share it make port 3000 public in the Ports tab (step 8 in the notebook). Everything goes through that one port: the frontend serves the pages and proxies all API requests to pygeoapi, and pygeoapi's own links point there too.

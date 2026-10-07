@@ -8,6 +8,10 @@
 #
 # Both images bake in config/pygeoapi-config.yml, so rebuild after changing it:
 #   docker compose up -d --build
+#
+# Everything is reached through the frontend (port 3000): it serves the HTML pages
+# and proxies every other request (?f=json, tiles, /openapi, ...) to pygeoapi. So
+# pygeoapi's own links point there too — one URL for browsers, QGIS and scripts.
 services:
   frontend:
     build:
@@ -17,11 +21,12 @@ services:
       - "3000:3000"
     environment:
       - API_BASE_URL=http://backend:5000
-      - BASE_URL_PUBLIC=${FRONTEND_URL:-http://localhost:3000}
+      - BASE_URL_PUBLIC=${PUBLIC_URL:-http://localhost:3000}
     platform: linux/amd64
     depends_on:
       backend:
         condition: service_started
+    restart: unless-stopped
 
   backend:
     build:
@@ -30,7 +35,7 @@ services:
     ports:
       - "5001:5000"
     environment:
-      - PYGEOAPI_URL=${BACKEND_URL:-http://localhost:5001}
+      - PYGEOAPI_URL=${PUBLIC_URL:-http://localhost:3000}
       # Used by the config in postgis mode (same names as the starter kit)
       - DB_HOST=postgis
       - DB_NAME=ogcapi
@@ -46,6 +51,7 @@ services:
       postgis:
         condition: service_healthy
         required: false # only when the postgis profile is on
+    restart: unless-stopped
 
   postgis:
     profiles: [postgis]
@@ -62,6 +68,7 @@ services:
       timeout: 5s
       retries: 10
       start_period: 20s
+    restart: unless-stopped
 
   # One-off: loads the GeoPackage into PostGIS with ogr2ogr (run by the notebook)
   loader:
