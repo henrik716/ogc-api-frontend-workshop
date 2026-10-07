@@ -26,47 +26,51 @@ logging:
 metadata:
   identification:
     title:
-      en: Byer i Norge
+      en: Administrative enheter og byer
     description:
-      en: Et lite eksempeldatasett laget for OGC API-workshopen.
+      en: 'Norges fylker og kommuner fra Kartverkets administrative enheter, med forenklede grenser, og et utvalg norske byer.
+        Laget for OGC API-workshopen, og ikke en autoritativ kilde: bruk Geonorge for de offisielle datasettene.'
     keywords:
       en:
+      - administrative enheter
+      - fylke
+      - kommune
       - by
-      - tettsted
       - workshop
     keywords_type: theme
     terms_of_service: https://creativecommons.org/licenses/by/4.0/
-    url: https://www.example.com
+    url: https://www.kartverket.no
   license:
     name: CC BY 4.0
     url: https://creativecommons.org/licenses/by/4.0/
   provider:
-    name: Din organisasjon
-    url: https://www.example.com
+    name: Kartverket
+    url: https://www.kartverket.no
   contact:
-    name: Ditt navn
-    email: deg@example.com
-    url: https://www.example.com
-    contactUrl: https://www.example.com
+    name: Kartverket
+    email: post@kartverket.no
+    url: https://www.kartverket.no
+    contactUrl: https://www.kartverket.no
 resources:
   byer:
     type: collection
     title:
       en: Byer
     description:
-      en: Et utvalg norske byer med kommune og fylke.
+      en: Et utvalg på 25 norske byer, med kommunen og fylket de ligger i.
     keywords:
       en:
       - by
+      - tettsted
       - kommune
       - fylke
     extents:
       spatial:
         bbox:
-        - 0.249177
-        - 57.976427
-        - 30.405166
-        - 70.868607
+        - 5.268
+        - 58.1599
+        - 30.045
+        - 70.6634
         crs: http://www.opengis.net/def/crs/OGC/1.3/CRS84
     providers:
     - type: feature
@@ -88,3 +92,91 @@ resources:
       - http://www.opengis.net/def/crs/EPSG/0/3857
       storage_crs: http://www.opengis.net/def/crs/EPSG/0/25833
       title_field: navn
+  fylker:
+    type: collection
+    title:
+      en: Fylker
+    description:
+      en: Norges fylker med fylkesnummer, navn, antall kommuner og areal. Grensene er forenklet.
+    keywords:
+      en:
+      - fylke
+      - fylkesgrense
+      - administrativ inndeling
+    extents:
+      spatial:
+        bbox:
+        - 3.624067
+        - 57.672295
+        - 32.291189
+        - 71.678691
+        crs: http://www.opengis.net/def/crs/OGC/1.3/CRS84
+    providers:
+    - type: feature
+      name: OGR
+      data:
+        source_type: GPKG
+        source: /data/demo.gpkg
+        source_capabilities:
+          paging: true
+      layer: fylker
+      id_field: fylkesnummer
+      crs:
+      - http://www.opengis.net/def/crs/OGC/1.3/CRS84
+      - http://www.opengis.net/def/crs/EPSG/0/4326
+      - http://www.opengis.net/def/crs/EPSG/0/4258
+      - http://www.opengis.net/def/crs/EPSG/0/25832
+      - http://www.opengis.net/def/crs/EPSG/0/25833
+      - http://www.opengis.net/def/crs/EPSG/0/25835
+      - http://www.opengis.net/def/crs/EPSG/0/3857
+      storage_crs: http://www.opengis.net/def/crs/EPSG/0/25833
+      title_field: navn
+    links:
+    - type: text/html
+      rel: related
+      title: Administrative enheter – fylker i Geonorge
+      href: https://kartkatalog.geonorge.no/metadata/administrative-enheter-fylker/6093c8a8-fa80-11e6-bc64-92361f002671
+  kommuner:
+    type: collection
+    title:
+      en: Kommuner
+    description:
+      en: Norges kommuner med kommunenummer, navn, fylke og areal. Grensene er forenklet.
+    keywords:
+      en:
+      - kommune
+      - kommunegrense
+      - administrativ inndeling
+    extents:
+      spatial:
+        bbox:
+        - 3.899682
+        - 57.719973
+        - 31.950629
+        - 71.473683
+        crs: http://www.opengis.net/def/crs/OGC/1.3/CRS84
+    providers:
+    - type: feature
+      name: OGR
+      data:
+        source_type: GPKG
+        source: /data/demo.gpkg
+        source_capabilities:
+          paging: true
+      layer: kommuner
+      id_field: kommunenummer
+      crs:
+      - http://www.opengis.net/def/crs/OGC/1.3/CRS84
+      - http://www.opengis.net/def/crs/EPSG/0/4326
+      - http://www.opengis.net/def/crs/EPSG/0/4258
+      - http://www.opengis.net/def/crs/EPSG/0/25832
+      - http://www.opengis.net/def/crs/EPSG/0/25833
+      - http://www.opengis.net/def/crs/EPSG/0/25835
+      - http://www.opengis.net/def/crs/EPSG/0/3857
+      storage_crs: http://www.opengis.net/def/crs/EPSG/0/25833
+      title_field: navn
+    links:
+    - type: text/html
+      rel: related
+      title: Administrative enheter – kommuner i Geonorge
+      href: https://kartkatalog.geonorge.no/metadata/administrative-enheter-kommuner/041f1e6e-bdbc-4091-b48f-8a5990f3cc5b

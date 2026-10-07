@@ -38,9 +38,9 @@ The layout follows [ogc-api-starter](https://github.com/kartverket/ogc-api-start
 | `backend/Dockerfile` | pygeoapi: Kartverket's image + your config + your data |
 | `frontend/Dockerfile` | The frontend: Kartverket's image + your config |
 | `docker-compose.yml` | Runs the frontend (port 3000) and backend (port 5001), plus PostGIS when `SOURCE = "postgis"` |
-| `data/demo.gpkg` | Placeholder dataset: 25 Norwegian towns stored in EPSG:25833 |
+| `data/demo.gpkg` | Placeholder dataset in EPSG:25833 with three layers: `fylker` (15 counties) and `kommuner` (357 municipalities), from Kartverket's administrative units with simplified borders, and `byer` (25 towns) |
 | `workshop.py` | Plumbing the notebook uses (reading the GeoPackage, writing the config, running Docker) |
-| `tools/make_demo_gpkg.py` | Regenerates `data/demo.gpkg` |
+| `tools/make_demo_gpkg.py` | Regenerates `data/demo.gpkg` from Kartverket's published PostGIS dumps (needs `shapely` and `pyproj`) |
 
 Prefer a terminal? `docker compose up -d --build` and `docker compose down` work as usual.
 

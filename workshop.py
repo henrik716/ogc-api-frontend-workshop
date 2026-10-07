@@ -8,6 +8,7 @@ the things participants actually decide: their data and their metadata.
 
 import copy
 import json
+import math
 import os
 import re
 import sqlite3
@@ -16,6 +17,7 @@ import time
 import urllib.request
 from pathlib import Path
 
+import shapely
 import yaml
 from pyproj import Transformer
 
@@ -133,7 +135,6 @@ def inspect_gpkg(path) -> list[dict]:
     rows = con.execute(
         """
         SELECT c.table_name, g.column_name, g.geometry_type_name,
-               c.min_x, c.min_y, c.max_x, c.max_y,
                s.organization, s.organization_coordsys_id
         FROM gpkg_contents c
         JOIN gpkg_geometry_columns g ON g.table_name = c.table_name
@@ -144,22 +145,17 @@ def inspect_gpkg(path) -> list[dict]:
     ).fetchall()
 
     layers = []
-    for table, geom_col, geom_type, minx, miny, maxx, maxy, org, code in rows:
+    for table, geom_col, geom_type, org, code in rows:
         if (org or "").upper() != "EPSG":
             print(f"⚠ Skipping layer '{table}': its CRS is not an EPSG code ({org}:{code}).")
             continue
         info = [r for r in con.execute(f'PRAGMA table_info("{table}")') if r[1] != geom_col]
         columns = [(r[1], r[2]) for r in info]
         pk = next((r[1] for r in info if r[5]), None)
-        if None in (minx, miny, maxx, maxy):
-            # Extent not recorded in gpkg_contents — fall back to the spatial index.
-            try:
-                minx, miny, maxx, maxy = con.execute(
-                    f'SELECT min(minx), min(miny), max(maxx), max(maxy) FROM "rtree_{table}_{geom_col}"'
-                ).fetchone()
-            except sqlite3.OperationalError:
-                print(f"⚠ Skipping layer '{table}': no extent recorded and no spatial index.")
-                continue
+        boxes = _feature_boxes(con, table, geom_col)
+        if not boxes:
+            print(f"⚠ Skipping layer '{table}': it has no geometries.")
+            continue
         layers.append(
             {
                 "layer": table,
@@ -169,7 +165,7 @@ def inspect_gpkg(path) -> list[dict]:
                 "columns": columns,
                 "pk": pk,
                 "count": con.execute(f'SELECT count(*) FROM "{table}"').fetchone()[0],
-                "bbox": to_crs84((minx, miny, maxx, maxy), int(code)),
+                "bbox": to_crs84(boxes, int(code)),
                 "file": path.relative_to(DATA_DIR).as_posix(),
             }
         )
@@ -180,10 +176,37 @@ def inspect_gpkg(path) -> list[dict]:
     return layers
 
 
-def to_crs84(bbox, epsg: int) -> list[float]:
+# Size of the envelope in a GeoPackage geometry header, by envelope indicator
+_ENVELOPE_BYTES = {0: 0, 1: 32, 2: 48, 3: 48, 4: 64}
+
+
+def _feature_boxes(con, table: str, geom_col: str) -> list[tuple]:
+    """Each feature's bounding box (minx, miny, maxx, maxy), in the layer's own CRS."""
+    try:
+        # The spatial index already has them, when there is one
+        return con.execute(f'SELECT minx, miny, maxx, maxy FROM "rtree_{table}_{geom_col}"').fetchall()
+    except sqlite3.OperationalError:
+        pass
+    wkbs = []
+    for (blob,) in con.execute(f'SELECT "{geom_col}" FROM "{table}" WHERE "{geom_col}" IS NOT NULL'):
+        envelope = (blob[3] >> 1) & 0b111  # header: "GP", version, flags, srs_id, envelope
+        wkbs.append(bytes(blob[8 + _ENVELOPE_BYTES[envelope]:]))
+    bounds = shapely.bounds(shapely.from_wkb(wkbs))
+    return [tuple(b) for b in bounds if not any(map(math.isnan, b))]
+
+
+def to_crs84(boxes: list[tuple], epsg: int) -> list[float]:
+    """Combine per-feature boxes into one lon/lat extent.
+
+    Reprojecting each feature's (small) box and combining them gives a much
+    tighter extent than reprojecting the layer's one big box, whose corners
+    can land far outside the data (e.g. in the sea west of Norway).
+    """
+    xs = [x for b in boxes for x in (b[0], b[0], b[2], b[2])]
+    ys = [y for b in boxes for y in (b[1], b[3], b[1], b[3])]
     if epsg != 4326:
-        bbox = Transformer.from_crs(epsg, 4326, always_xy=True).transform_bounds(*bbox, densify_pts=21)
-    return [round(v, 6) for v in bbox]
+        xs, ys = Transformer.from_crs(epsg, 4326, always_xy=True).transform(xs, ys)
+    return [round(v, 6) for v in (min(xs), min(ys), max(xs), max(ys))]
 
 
 def describe(layers: list[dict]) -> None:
@@ -347,6 +370,11 @@ def build_config(dataset: dict, collections: dict, layers: list[dict], source: s
             "extents": {"spatial": {"bbox": l["bbox"], "crs": CRS84}},
             "providers": providers,
         }
+        if meta.get("links"):
+            # e.g. the dataset's page in Geonorge — shown in the frontend and the API
+            resources[l["id"]]["links"] = [
+                {"type": "text/html", "rel": "related", **link} for link in meta["links"]
+            ]
 
     return {
         "server": {
