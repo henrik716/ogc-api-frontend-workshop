@@ -1,2 +1,3 @@
 *.gpkg binary
 *.ipynb text eol=lf
+*.gz binary

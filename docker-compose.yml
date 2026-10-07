@@ -1,10 +1,11 @@
 # Same layout as https://github.com/kartverket/ogc-api-starter.
 #
-# Two ways to serve the data, picked with SOURCE in workshop.ipynb:
-#   gpkg    — the backend reads the GeoPackage in data/ directly (no database)
-#   postgis — a local PostGIS database, loaded from the GeoPackage (the recommended
-#             setup at Kartverket). The notebook turns this on by writing
-#             COMPOSE_PROFILES=postgis to .env.
+# Where the data comes from:
+#   part 1 (workshop.ipynb), SOURCE = "gpkg"    — the GeoPackage in data/, no database
+#   part 1 (workshop.ipynb), SOURCE = "postgis" — that GeoPackage, loaded into PostGIS
+#   part 2 (workshop-postgis.ipynb)             — an existing PostGIS database (schema
+#             adm, from postgis/adm.sql.gz), the setup Kartverket recommends
+# The notebooks turn the database on by writing COMPOSE_PROFILES=postgis to .env.
 #
 # Both images bake in config/pygeoapi-config.yml, so rebuild after changing it:
 #   docker compose up -d --build
@@ -58,6 +59,9 @@ services:
     image: postgis/postgis:18-3.6-alpine
     volumes:
       - postgres_data:/var/lib/postgresql
+      # Part 2's database (schema adm), loaded the first time the database starts.
+      # Named 20_* so it runs after the image's own 10_postgis.sh.
+      - ./postgis/adm.sql.gz:/docker-entrypoint-initdb.d/20_adm.sql.gz:ro
     environment:
       - POSTGRES_DB=ogcapi
       - POSTGRES_USER=postgres
@@ -67,7 +71,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
-      start_period: 20s
+      start_period: 180s # the first start loads part 2's database
     restart: unless-stopped
 
   # One-off: loads the GeoPackage into PostGIS with ogr2ogr (run by the notebook)

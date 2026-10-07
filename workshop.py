@@ -14,6 +14,7 @@ import re
 import sqlite3
 import subprocess
 import time
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -76,10 +77,15 @@ def public_url(port: int = 3000) -> str:
     return f"http://localhost:{port}"
 
 
-def get_json(path: str):
-    """GET a path from the API (the pygeoapi backend) as JSON."""
+def get_json(path: str, params: dict | None = None):
+    """GET a path from the API (the pygeoapi backend) as JSON.
+
+    Query parameters can go in the path, or in `params`, which takes care of
+    URL-encoding (needed for e.g. CQL2 filters with spaces and quotes).
+    """
+    query = urllib.parse.urlencode({"f": "json", **(params or {})})
     sep = "&" if "?" in path else "?"
-    with urllib.request.urlopen(f"http://localhost:5001{path}{sep}f=json", timeout=30) as res:
+    with urllib.request.urlopen(f"http://localhost:5001{path}{sep}{query}", timeout=60) as res:
         return json.load(res)
 
 
@@ -259,6 +265,104 @@ def download() -> None:
 
 
 # ------------------------------------------------------------------
+# Part 2: an existing PostGIS database (workshop-postgis.ipynb)
+# ------------------------------------------------------------------
+def _sql_literal(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
+
+
+def psql_json(query: str) -> list[dict]:
+    """Run a SELECT in the workshop database and return its rows as dicts."""
+    sql = f"SELECT coalesce(json_agg(q), '[]') FROM ({query}) q"
+    proc = subprocess.run(
+        ["docker", "compose", "--profile", "postgis", "exec", "-T", "postgis",
+         "psql", "-U", "postgres", "-d", "ogcapi", "-X", "-q", "-At", "-v", "ON_ERROR_STOP=1", "-c", sql],
+        cwd=ROOT, capture_output=True, text=True,
+    )
+    if proc.returncode != 0:
+        raise SystemExit(f"✗ The database query failed:\n{proc.stderr.strip()}")
+    return json.loads(proc.stdout)
+
+
+def start_database() -> None:
+    print("Starting PostGIS. The very first start also loads the workshop database "
+          "(postgis/adm.sql.gz), which takes a minute or two.", flush=True)
+    compose("--profile", "postgis", "up", "-d", "--wait", "postgis")
+    if not psql_json("SELECT 1 FROM information_schema.schemata WHERE schema_name = 'adm'"):
+        # The database was created before the dump was there (e.g. by part 1),
+        # so PostgreSQL skipped loading it. Load it now.
+        print("Loading the workshop database into the existing PostGIS…", flush=True)
+        run("docker", "compose", "--profile", "postgis", "exec", "-T", "postgis", "sh", "-c",
+            "gunzip -c /docker-entrypoint-initdb.d/20_adm.sql.gz | psql -U postgres -d ogcapi -q -v ON_ERROR_STOP=1")
+    print("✓ Database ready")
+
+
+def inspect_postgis(schema: str) -> list[dict]:
+    """Every table with a geometry column in `schema`: columns, keys, comments and extent."""
+    tables = psql_json(f"""
+        SELECT f_table_name AS table, f_geometry_column AS geom_column, srid, type,
+               obj_description(format('%I.%I', f_table_schema, f_table_name)::regclass, 'pg_class') AS comment
+        FROM geometry_columns
+        WHERE f_table_schema = {_sql_literal(schema)}
+        ORDER BY f_table_name""")
+    if not tables:
+        raise SystemExit(f"✗ No tables with a geometry column in schema '{schema}'.")
+
+    layers = []
+    for t in tables:
+        qualified = f'"{schema}"."{t["table"]}"'
+        columns = psql_json(f"""
+            SELECT a.attname AS name, format_type(a.atttypid, a.atttypmod) AS type,
+                   col_description(a.attrelid, a.attnum) AS comment,
+                   coalesce(i.indisprimary, false) AS pk
+            FROM pg_attribute a
+            LEFT JOIN pg_index i ON i.indrelid = a.attrelid AND i.indisprimary AND a.attnum = ANY(i.indkey)
+            WHERE a.attrelid = {_sql_literal(qualified)}::regclass AND a.attnum > 0 AND NOT a.attisdropped
+            ORDER BY a.attnum""")
+        # Each feature's box, reprojected and combined: a tight lon/lat extent
+        # without reprojecting every vertex of every geometry.
+        stats = psql_json(f"""
+            SELECT n AS count, ST_XMin(e) AS minx, ST_YMin(e) AS miny, ST_XMax(e) AS maxx, ST_YMax(e) AS maxy
+            FROM (SELECT count(*) AS n, ST_Extent(ST_Transform(ST_Envelope("{t['geom_column']}"), 4326)) AS e
+                  FROM {qualified}) s""")[0]
+        if not stats["count"]:
+            print(f"⚠ Skipping table '{schema}.{t['table']}': it's empty.")
+            continue
+        attrs = [c for c in columns if c["name"] != t["geom_column"]]
+        layers.append(
+            {
+                "layer": f"{schema}.{t['table']}",
+                "schema": schema,
+                "table": t["table"],
+                "geom_column": t["geom_column"],
+                "id": safe_id(t["table"]),
+                "geometry": t["type"],
+                "epsg": t["srid"],
+                "columns": [(c["name"], c["type"]) for c in attrs],
+                "column_comments": {c["name"]: c["comment"] for c in attrs},
+                "pk": next((c["name"] for c in attrs if c["pk"]), None),
+                "count": stats["count"],
+                "bbox": [round(stats[k], 6) for k in ("minx", "miny", "maxx", "maxy")],
+                "comment": t["comment"],
+            }
+        )
+    return layers
+
+
+def describe_postgis(layers: list[dict]) -> None:
+    for l in layers:
+        print(f"Table {l['layer']}")
+        if l["comment"]:
+            print(f"  \"{l['comment']}\"")
+        print(f"  {l['count']} rows, {l['geometry']}, EPSG:{l['epsg']}, primary key: {l['pk']}")
+        print(f"  bbox (lon/lat): {l['bbox']}")
+        for name, type_ in l["columns"]:
+            comment = l["column_comments"].get(name)
+            print(f"    {name:16} {type_:18} {comment or ''}")
+        print()
+
+
+# ------------------------------------------------------------------
 # Building pygeoapi-config.yml
 #
 # Both images bake in this one file (see backend/ and frontend/Dockerfile):
@@ -294,7 +398,8 @@ def build_config(dataset: dict, collections: dict, layers: list[dict], source: s
 
         # The collection id is the URL path segment: /collections/<id>.
         # Stored back on the layer so later cells (links, examples) use it too.
-        l["id"] = meta.get("id", safe_id(l["layer"]))
+        l.setdefault("default_id", l["id"])
+        l["id"] = meta.get("id", l["default_id"])
         if not VALID_ID.match(l["id"]):
             raise SystemExit(
                 f"✗ {l['layer']}: id '{l['id']}' doesn't follow the URL standard — use lowercase "
@@ -320,11 +425,11 @@ def build_config(dataset: dict, collections: dict, layers: list[dict], source: s
                     "dbname": "${DB_NAME}",
                     "user": "${DB_USER}",
                     "password": "${DB_PASSWORD}",
-                    "search_path": ["public"],
+                    "search_path": [l.get("schema", "public")],
                 },
                 "id_field": id_field,
-                "table": table_name(l["layer"]),
-                "geom_field": "geometry",
+                "table": l.get("table", table_name(l["layer"])),
+                "geom_field": l.get("geom_column", "geometry"),
             }
         else:
             provider = {
@@ -355,7 +460,7 @@ def build_config(dataset: dict, collections: dict, layers: list[dict], source: s
                     "data": copy.deepcopy(provider["data"]),  # a copy, so the YAML has no &id001 anchors
                     "id_field": id_field,
                     "table": provider["table"],
-                    "geom_field": "geometry",
+                    "geom_field": provider["geom_field"],
                     "storage_crs": storage_crs,
                     "options": {"zoom": {"min": 0, "max": 18}},
                     "format": {"name": "pbf", "mimetype": "application/vnd.mapbox-vector-tile"},
@@ -370,6 +475,10 @@ def build_config(dataset: dict, collections: dict, layers: list[dict], source: s
             "extents": {"spatial": {"bbox": l["bbox"], "crs": CRS84}},
             "providers": providers,
         }
+        if meta.get("download"):
+            # Area filters for the frontend's download panel (postgis only),
+            # in the same shape as Kartverket's own config
+            resources[l["id"]]["download"] = meta["download"]
         if meta.get("links"):
             # e.g. the dataset's page in Geonorge — shown in the frontend and the API
             resources[l["id"]]["links"] = [
@@ -432,7 +541,7 @@ def _stub(l: dict) -> str:
 def write_config(config: dict) -> None:
     CONFIG_FILE.parent.mkdir(exist_ok=True)
     CONFIG_FILE.write_text(
-        "# Generated by workshop.ipynb — edit the notebook and re-run it instead of this file.\n"
+        "# Generated by the workshop notebooks — edit the notebook and re-run it instead of this file.\n"
         + yaml.safe_dump(config, sort_keys=False, allow_unicode=True, width=120),
         encoding="utf-8",
     )
