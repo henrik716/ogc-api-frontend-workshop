@@ -8,20 +8,20 @@ Everything runs in a GitHub Codespace, so there's nothing to install.
 
 | | Notebook | |
 |---|---|---|
-| **Part 1** | `workshop.ipynb` | Publish a GeoPackage as an OGC API – Features service |
-| **Part 2** | `workshop-postgis.ipynb` | Publish from a PostGIS database, the setup Kartverket recommends, with vector tiles, downloads and advanced queries |
+| **Part 1** | `part1-geopackage.ipynb` | Publish a GeoPackage as an OGC API – Features service |
+| **Part 2** | `part2-postgis.ipynb` | Publish from a PostGIS database, the setup Kartverket recommends, with vector tiles, processes (downloads) and advanced queries |
 
 ## Get started
 
 1. Click **Code → Codespaces → Create codespace on main** on this repo's GitHub page.
-2. Wait for the Codespace to finish setting up (a couple of minutes). `workshop.ipynb` opens automatically.
-3. Run the notebook cells from top to bottom.
+2. Wait for the Codespace to finish setting up (a couple of minutes). `part1-geopackage.ipynb` opens automatically.
+3. Run the notebook cells from top to bottom. When you're done, part 1 points you to part 2.
 
 ## Part 1: a GeoPackage
 
 The placeholder dataset `data/demo.gpkg` has three layers: `fylker` (15 counties), `kommuner` (357 municipalities) and `byer` (25 towns).
 
-**Using your own data:** drag a GeoPackage (`.gpkg`) into the `data/` folder, set `GPKG` in step 2 of the notebook, and fill in the metadata in steps 3–4. Every layer in the GeoPackage becomes a collection in the API. Layers need a CRS with an EPSG code. Any EPSG code works, and the API reprojects on the fly.
+**Using your own data:** drag a GeoPackage (`.gpkg`) into the `data/` folder, set `GPKG` in step 2 of the notebook, and fill in the metadata in steps 3–4. Every layer in the GeoPackage becomes a collection in the API. Layers need a CRS with an EPSG code. Any EPSG code works, and the API reprojects on the fly. Git ignores your own files in `data/`, so they aren't committed by accident.
 
 Step 2 also has a `SOURCE` setting:
 
@@ -34,7 +34,34 @@ Real services at Kartverket follow the [golden path](https://kartverket.github.i
 
 - **The database:** a local PostGIS in the Codespace, loaded from `postgis/adm.sql.gz` the first time it starts. Schema `adm` has `fylker`, `kommuner` and `byer` with full-detail geometries in EPSG:25833, primary and foreign keys, spatial indexes, and comments on every table and column.
 - **Choosing what to publish:** only the tables listed in the notebook are published.
-- **What you get on top of part 1:** vector tiles (OGC API – Tiles), downloads in the frontend (whole collections, or filtered by county or municipality), and CQL2 filters, sorting and attribute selection.
+- **What you get on top of part 1:** vector tiles (OGC API – Tiles), processes (OGC API – Processes) that power the frontend's downloads (whole collections, or filtered by county or municipality), and CQL2 filters, sorting and attribute selection.
+
+### Bringing your own database dump
+
+Drag a dump into the `postgis/` folder, then in step 2 of the notebook run `load_dump("postgis/<your file>")` and set `SCHEMA` to your schema. `load_dump` accepts:
+
+| Format | Made with |
+|---|---|
+| `.sql` | `pg_dump -Fp`, or `ogr2ogr -f PGDump` |
+| `.sql.gz` | either of the above, gzipped |
+| `.zip` with one `.sql` file | like Kartverket's own development dumps |
+| `.dump` | `pg_dump -Fc` (custom format) |
+
+To make one from a PostGIS database (a whole schema; use `--table=schema.table` for one table):
+
+```
+pg_dump --no-owner --no-privileges --schema=my_schema -Fc -f my-dump.dump "postgresql://user@host:5432/database"
+```
+
+`--no-owner --no-privileges` leaves out database users and permissions, which don't exist in the Codespace. If a dump has them anyway, `load_dump` reports those errors as harmless and loads the data. For Cloud SQL, run `pg_dump` through the Cloud SQL Auth Proxy.
+
+To make one from files (GeoPackage, Shapefile, GeoJSON, …) without a database:
+
+```
+ogr2ogr -f PGDump my-dump.sql my-data.gpkg -lco SCHEMA=my_schema
+```
+
+Every published table needs a primary key (or another column with unique values) and a geometry column with an EPSG code. Git ignores your own files in `postgis/`, so dumps aren't committed by accident. GitHub doesn't accept files over 100 MB in a repository, so a large dump is something you upload into your own Codespace rather than commit.
 
 ## What's in here
 
@@ -42,8 +69,8 @@ The layout follows [ogc-api-starter](https://github.com/kartverket/ogc-api-start
 
 | File | |
 |---|---|
-| `workshop.ipynb` | Part 1: publish a GeoPackage |
-| `workshop-postgis.ipynb` | Part 2: publish from PostGIS |
+| `part1-geopackage.ipynb` | Part 1: publish a GeoPackage |
+| `part2-postgis.ipynb` | Part 2: publish from PostGIS |
 | `config/pygeoapi-config.yml` | The API configuration. The notebooks write it; both images are built with it |
 | `backend/Dockerfile` | pygeoapi: Kartverket's image + your config + your data |
 | `frontend/Dockerfile` | The frontend: Kartverket's image + your config |

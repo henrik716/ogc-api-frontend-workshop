@@ -2,3 +2,9 @@
 __pycache__/
 .ipynb_checkpoints/
 .venv/
+# Participants' own data stays in their Codespace: ignore everything in
+# data/ and postgis/ apart from the workshop's own files
+data/*
+!data/demo.gpkg
+postgis/*
+!postgis/adm.sql.gz

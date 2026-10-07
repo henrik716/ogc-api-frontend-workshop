@@ -1,9 +1,9 @@
 # Same layout as https://github.com/kartverket/ogc-api-starter.
 #
 # Where the data comes from:
-#   part 1 (workshop.ipynb), SOURCE = "gpkg"    — the GeoPackage in data/, no database
-#   part 1 (workshop.ipynb), SOURCE = "postgis" — that GeoPackage, loaded into PostGIS
-#   part 2 (workshop-postgis.ipynb)             — an existing PostGIS database (schema
+#   part 1 (part1-geopackage.ipynb), SOURCE = "gpkg"    — the GeoPackage in data/, no database
+#   part 1 (part1-geopackage.ipynb), SOURCE = "postgis" — that GeoPackage, loaded into PostGIS
+#   part 2 (part2-postgis.ipynb)             — an existing PostGIS database (schema
 #             adm, from postgis/adm.sql.gz), the setup Kartverket recommends
 # The notebooks turn the database on by writing COMPOSE_PROFILES=postgis to .env.
 #

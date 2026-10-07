@@ -18,7 +18,7 @@
       }
     },
     "codespaces": {
-      "openFiles": ["README.md", "workshop.ipynb"]
+      "openFiles": ["README.md", "part1-geopackage.ipynb"]
     }
   },
   "forwardPorts": [3000],

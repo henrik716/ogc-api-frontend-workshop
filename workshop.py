@@ -1,5 +1,5 @@
 """
-workshop.py — plumbing for workshop.ipynb.
+workshop.py — plumbing for the workshop notebooks (part1-geopackage.ipynb, part2-postgis.ipynb).
 
 Everything here is the boring part (reading the GeoPackage, writing YAML,
 running docker compose), kept out of the notebook so its cells stay about
@@ -7,15 +7,18 @@ the things participants actually decide: their data and their metadata.
 """
 
 import copy
+import gzip
 import json
 import math
 import os
 import re
+import shutil
 import sqlite3
 import subprocess
 import time
 import urllib.parse
 import urllib.request
+import zipfile
 from pathlib import Path
 
 import shapely
@@ -265,7 +268,7 @@ def download() -> None:
 
 
 # ------------------------------------------------------------------
-# Part 2: an existing PostGIS database (workshop-postgis.ipynb)
+# Part 2: an existing PostGIS database (part2-postgis.ipynb)
 # ------------------------------------------------------------------
 def _sql_literal(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
@@ -295,6 +298,82 @@ def start_database() -> None:
         run("docker", "compose", "--profile", "postgis", "exec", "-T", "postgis", "sh", "-c",
             "gunzip -c /docker-entrypoint-initdb.d/20_adm.sql.gz | psql -U postgres -d ogcapi -q -v ON_ERROR_STOP=1")
     print("✓ Database ready")
+
+
+def _open_dump(path: Path):
+    """The dump's SQL (or pg_dump archive) as a binary stream, unpacking .gz and .zip."""
+    with open(path, "rb") as f:
+        magic = f.read(4)
+    if magic[:2] == b"\x1f\x8b":
+        return gzip.open(path, "rb")
+    if magic == b"PK\x03\x04":
+        zf = zipfile.ZipFile(path)
+        members = [n for n in zf.namelist() if not n.endswith("/")]
+        if len(members) != 1:
+            raise SystemExit(f"✗ {path.name} should contain exactly one file, but has {len(members)}.")
+        return zf.open(members[0])
+    return open(path, "rb")
+
+
+def load_dump(path) -> None:
+    """Load a database dump into the workshop database.
+
+    Accepts plain SQL (pg_dump -Fp, or ogr2ogr -f PGDump), optionally gzipped
+    (.sql.gz) or zipped, and pg_dump's custom format (pg_dump -Fc). The file is
+    streamed into the container, so it can be large.
+    """
+    path = (ROOT / path).resolve()
+    if not path.exists():
+        raise SystemExit(f"✗ {path} not found. Drag your dump into the postgis/ folder and check the path.")
+
+    stream = _open_dump(path)
+    head = stream.read(5)
+    if head == b"PGDMP":  # pg_dump's custom format
+        tool = ["pg_restore", "-U", "postgres", "-d", "ogcapi", "--no-owner", "--no-privileges"]
+    else:
+        tool = ["psql", "-U", "postgres", "-d", "ogcapi", "-X", "-q"]
+    print(f"Loading {path.name} with {tool[0]}…", flush=True)
+
+    proc = subprocess.Popen(
+        ["docker", "compose", "--profile", "postgis", "exec", "-T", "postgis", *tool],
+        cwd=ROOT, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+    )
+    try:
+        proc.stdin.write(head)
+        shutil.copyfileobj(stream, proc.stdin, length=1024 * 1024)
+        proc.stdin.close()
+    except (BrokenPipeError, OSError):
+        pass  # the tool stopped early; its own error message is reported below
+    finally:
+        stream.close()
+    stderr = proc.stderr.read().decode("utf-8", errors="replace")
+    proc.wait()
+    if proc.returncode != 0 and not stderr.strip():
+        raise SystemExit(f"✗ Loading {path.name} failed (exit {proc.returncode}).")
+
+    # Dumps often grant rights to, or set owners from, roles that don't exist
+    # here. Those errors are harmless: the data itself still loads.
+    errors = [l for l in stderr.splitlines() if "ERROR" in l or "error:" in l]
+    harmless = [l for l in errors if "role" in l and "does not exist" in l]
+    serious = [l for l in errors if l not in harmless]
+    if harmless:
+        print(f"  (ignored {len(harmless)} error(s) about database roles that don't exist here)")
+    if serious:
+        print(f"⚠ {len(serious)} error(s) while loading. The first few:")
+        for line in serious[:5]:
+            print("   ", line)
+    elif proc.returncode != 0 and not harmless:
+        print(stderr.strip()[-2000:])
+        raise SystemExit(f"✗ Loading {path.name} failed (exit {proc.returncode}) — see above.")
+    print(f"✓ Loaded {path.name}. Schemas in the database now: {', '.join(list_schemas())}")
+
+
+def list_schemas() -> list[str]:
+    """The schemas holding data (leaving out PostgreSQL's and PostGIS's own)."""
+    return [r["nspname"] for r in psql_json("""
+        SELECT nspname FROM pg_namespace
+        WHERE nspname NOT LIKE 'pg\\_%' AND nspname NOT IN ('information_schema', 'tiger', 'tiger_data', 'topology')
+        ORDER BY nspname""")]
 
 
 def inspect_postgis(schema: str) -> list[dict]:
@@ -582,14 +661,20 @@ def show_links(layers: list[dict]) -> None:
     # One address for everything: the frontend serves the pages and passes
     # every other request (?f=json, /openapi, tiles, ...) on to pygeoapi.
     base = public_url(3000)
+    resources = yaml.safe_load(CONFIG_FILE.read_text(encoding="utf-8"))["resources"]
     rows = [
         ("Landing page", base),
         ("The API as JSON", f"{base}/?f=json"),
         ("API documentation (OpenAPI)", f"{base}/openapi?f=html"),
     ]
+    if any(r["type"] == "process" for r in resources.values()):
+        # The frontend has no page of its own for these; it shows pygeoapi's
+        rows.append(("Processes (OGC API – Processes)", f"{base}/processes"))
     for l in layers:
         rows += [
             (f"`{l['id']}`: collection page", f"{base}/collections/{l['id']}"),
             (f"`{l['id']}`: features as GeoJSON", f"{base}/collections/{l['id']}/items?f=json"),
         ]
+        if any(p["type"] == "tile" for p in resources.get(l["id"], {}).get("providers", [])):
+            rows.append((f"`{l['id']}`: vector tiles", f"{base}/collections/{l['id']}/tiles"))
     display(Markdown("| | |\n|---|---|\n" + "\n".join(f"| {a} | <{b}> |" for a, b in rows)))
