@@ -12,7 +12,8 @@
         "redhat.vscode-yaml"
       ],
       "settings": {
-        "python.defaultInterpreterPath": "/usr/local/bin/python",
+        "python.defaultInterpreterPath": "${containerWorkspaceFolder}/.venv/bin/python",
+        "jupyter.kernels.excludePythonEnvironments": ["/usr/bin/python", "/usr/bin/python3", "/usr/local/bin/python", "/usr/local/bin/python3"],
         "workbench.editorAssociations": { "README.md": "vscode.markdown.preview.editor" }
       }
     },
@@ -25,5 +26,5 @@
     "3000": { "label": "OGC API", "onAutoForward": "notify" },
     "5001": { "label": "pygeoapi (internal)", "onAutoForward": "ignore" }
   },
-  "postCreateCommand": "/usr/local/bin/python -m pip install --no-cache-dir ipykernel pyyaml pyproj"
+  "postCreateCommand": "python3 -m venv .venv && .venv/bin/pip install --no-cache-dir ipykernel pyyaml pyproj"
 }
