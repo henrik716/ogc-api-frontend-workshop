@@ -35,6 +35,7 @@ Real services at Kartverket follow the [golden path](https://kartverket.github.i
 - **The database:** a local PostGIS in the Codespace, loaded from `postgis/adm.sql.gz` the first time it starts. Schema `adm` has `fylker`, `kommuner` and `byer` with full-detail geometries in EPSG:25833, primary and foreign keys, spatial indexes, and comments on every table and column.
 - **Choosing what to publish:** only the tables listed in the notebook are published.
 - **What you get on top of part 1:** vector tiles (OGC API – Tiles), processes (OGC API – Processes) that power the frontend's downloads (whole collections, or filtered by county or municipality), and CQL2 filters, sorting and attribute selection.
+- **Styling is the client's job:** vector tiles carry no colours, which is why Kartverket's frontend draws every collection in the same green. An optional step has participants open the same tiles in QGIS and colour the municipalities by county, to show that the API serves data and the client decides how it looks.
 
 ### Bringing your own database dump
 
