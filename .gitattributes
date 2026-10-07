@@ -1,0 +1,2 @@
+*.gpkg binary
+*.ipynb text eol=lf
