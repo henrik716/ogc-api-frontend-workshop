@@ -16,6 +16,7 @@ import shutil
 import sqlite3
 import subprocess
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 import zipfile
@@ -90,6 +91,33 @@ def get_json(path: str, params: dict | None = None):
     sep = "&" if "?" in path else "?"
     with urllib.request.urlopen(f"http://localhost:5001{path}{sep}{query}", timeout=60) as res:
         return json.load(res)
+
+
+def run_process(process_id: str, inputs: dict):
+    """Run an OGC API process and return its result.
+
+    Execution is a POST with the inputs as JSON (a browser opening the
+    .../execution URL sends a GET, which the API answers with 405 Method Not
+    Allowed). Without a 'Prefer: respond-async' header pygeoapi runs it right
+    away and sends the result back: parsed JSON, or the raw bytes of a file.
+    """
+    req = urllib.request.Request(
+        f"http://localhost:5001/processes/{process_id}/execution",
+        data=json.dumps({"inputs": inputs}).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=300) as res:
+            content_type, body = res.headers.get_content_type(), res.read()
+    except urllib.error.HTTPError as err:
+        detail = err.read().decode("utf-8", errors="replace")
+        try:
+            detail = json.loads(detail).get("description", detail)
+        except ValueError:
+            pass
+        raise SystemExit(f"✗ The process '{process_id}' failed ({err.code}): {detail}")
+    return json.loads(body) if content_type == "application/json" else body
 
 
 def wait_until_ready(timeout: int = 120) -> None:

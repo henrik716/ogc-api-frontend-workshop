@@ -96,5 +96,6 @@ Prefer a terminal? `docker compose up -d --build` and `docker compose down` work
 - **One API at a time:** both notebooks write the same `config/pygeoapi-config.yml`, so whichever ran its "Start your API" step last is what's running.
 - **Map view:** the frontend image is built with a maximum map extent covering Norway, so data elsewhere will display, but the initial map view is clamped to Norway.
 - **Database:** PostGIS runs in the Codespace with fixed workshop credentials (`postgres`/`qwer1234`, as in the starter kit). Its data survives `stop()` in a Docker volume. `docker compose --profile postgis down -v` wipes it; the next start reloads `adm`.
+- **"Method Not Allowed" on a process:** opening `/processes/<id>/execution` in a browser sends a GET, but processes only run on a POST with the inputs as JSON. Use the frontend's download panel, or `run_process()` as in step 7 of part 2.
 - **Area downloads:** Kartverket's `export-by-area-gpkg` process only knows two kinds of area, `fylke` and `kommune`, and expects the collections `fylker` and `kommuner`.
 - **Ports:** Codespaces ports are private by default. Participants who want to open their API in QGIS or share it make port 3000 public in the Ports tab. Everything goes through that one port: the frontend serves the pages and proxies all API requests to pygeoapi, and pygeoapi's own links point there too.
