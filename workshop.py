@@ -81,16 +81,38 @@ def public_url(port: int = 3000) -> str:
     return f"http://localhost:{port}"
 
 
+def fetch_json(url: str, params: dict | None = None):
+    """GET any URL as JSON, e.g. one of Geonorge's APIs."""
+    if params:
+        url += ("&" if "?" in url else "?") + urllib.parse.urlencode(params)
+    with urllib.request.urlopen(url, timeout=60) as res:
+        return json.load(res)
+
+
 def get_json(path: str, params: dict | None = None):
     """GET a path from the API (the pygeoapi backend) as JSON.
 
     Query parameters can go in the path, or in `params`, which takes care of
     URL-encoding (needed for e.g. CQL2 filters with spaces and quotes).
+    `path` can also be a link from one of the API's own responses (e.g. the
+    "next" page): those point at the public address, which is mapped back here.
     """
-    query = urllib.parse.urlencode({"f": "json", **(params or {})})
-    sep = "&" if "?" in path else "?"
-    with urllib.request.urlopen(f"http://localhost:5001{path}{sep}{query}", timeout=60) as res:
-        return json.load(res)
+    if path.startswith(public_url(3000)):
+        path = path[len(public_url(3000)):]
+    if "f=" not in path:
+        params = {"f": "json", **(params or {})}
+    return fetch_json(f"http://localhost:5001{path}", params)
+
+
+def show_request(path: str, accept: str) -> None:
+    """GET a path through the frontend, the way a browser or QGIS does, and show
+    the start of the response: the status, its Content-Type, and the body."""
+    req = urllib.request.Request(f"http://localhost:3000{path}", headers={"Accept": accept})
+    with urllib.request.urlopen(req, timeout=60) as res:
+        body = res.read(400).decode("utf-8", errors="replace")
+        print(f"GET {path}\nAccept: {accept}\n")
+        print(f"→ {res.status} {res.reason}, Content-Type: {res.headers.get('Content-Type')}")
+    print(body.strip()[:400] + " …\n")
 
 
 def run_process(process_id: str, inputs: dict):
@@ -313,6 +335,18 @@ def psql_json(query: str) -> list[dict]:
     if proc.returncode != 0:
         raise SystemExit(f"✗ The database query failed:\n{proc.stderr.strip()}")
     return json.loads(proc.stdout)
+
+
+def run_sql(statement: str) -> None:
+    """Run any SQL statement in the workshop database (e.g. an INSERT) and show psql's output."""
+    proc = subprocess.run(
+        ["docker", "compose", "--profile", "postgis", "exec", "-T", "postgis",
+         "psql", "-U", "postgres", "-d", "ogcapi", "-X", "-v", "ON_ERROR_STOP=1", "-c", statement],
+        cwd=ROOT, capture_output=True, text=True,
+    )
+    if proc.returncode != 0:
+        raise SystemExit(f"✗ The SQL failed:\n{proc.stderr.strip()}")
+    print(proc.stdout.strip())
 
 
 def start_database() -> None:
@@ -706,3 +740,179 @@ def show_links(layers: list[dict]) -> None:
         if any(p["type"] == "tile" for p in resources.get(l["id"], {}).get("providers", [])):
             rows.append((f"`{l['id']}`: vector tiles", f"{base}/collections/{l['id']}/tiles"))
     display(Markdown("| | |\n|---|---|\n" + "\n".join(f"| {a} | <{b}> |" for a, b in rows)))
+
+
+# ------------------------------------------------------------------
+# Checking that QGIS can reach the API
+# ------------------------------------------------------------------
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args, **kwargs):
+        return None  # report a redirect (e.g. to GitHub's sign-in) instead of following it
+
+
+def _fetch_as_qgis(url: str):
+    """GET a URL the way QGIS does: from outside, not signed in to GitHub,
+    with QGIS's User-Agent. Returns (status, content type, body)."""
+    opener = urllib.request.build_opener(_NoRedirect)
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 QGIS/34000"})
+    try:
+        with opener.open(req, timeout=60) as res:
+            return res.status, res.headers.get_content_type(), res.read()
+    except urllib.error.HTTPError as err:
+        return err.code, err.headers.get_content_type(), err.read()
+
+
+def _tile_at(lon: float, lat: float, z: int) -> tuple[int, int]:
+    """The WebMercatorQuad tile (column, row) that holds a lon/lat at zoom z."""
+    n = 2**z
+    col = int((lon + 180) / 360 * n)
+    row = int((1 - math.asinh(math.tan(math.radians(lat))) / math.pi) / 2 * n)
+    return col, row
+
+
+def check_qgis(layers: list[dict]) -> None:
+    """Check that the API can be reached from outside the Codespace, as QGIS
+    reaches it, and print the vector tile URLs in the form QGIS wants."""
+    base = public_url(3000)
+    status, content_type, _ = _fetch_as_qgis(f"{base}/collections?f=json")
+    if status != 200 or content_type != "application/json":
+        print(f"✗ Asked for {base}/collections?f=json and got {status} ({content_type}), not JSON.")
+        if status in (301, 302, 303, 307, 308, 401, 403) or content_type == "text/html":
+            print("  Port 3000 is still private, so GitHub asks for a sign-in that QGIS can't do.\n"
+                  "  Ports tab → right-click port 3000 → Port Visibility → Public, then run this cell again.")
+        else:
+            print("  Is the API running? Run the 'Start your API' step again.")
+        return
+    print(f"✓ Your API can be reached from outside the Codespace: {base}")
+
+    resources = yaml.safe_load(CONFIG_FILE.read_text(encoding="utf-8"))["resources"]
+    tiled = [l for l in layers
+             if any(p["type"] == "tile" for p in resources.get(l["id"], {}).get("providers", []))]
+    if not tiled:
+        return
+    print("\nVector tile URLs for QGIS (Min. zoom 5, Max. zoom 18):")
+    for l in tiled:
+        # Fetch one real tile: the one holding the collection's first feature, at zoom 5
+        coords = get_json(f"/collections/{l['id']}/items", {"limit": 1})["features"][0]["geometry"]["coordinates"]
+        while isinstance(coords[0], list):
+            coords = coords[0]
+        col, row = _tile_at(coords[0], coords[1], 5)
+        status, content_type, body = _fetch_as_qgis(
+            f"{base}/collections/{l['id']}/tiles/WebMercatorQuad/5/{row}/{col}?f=mvt")
+        ok = status == 200 and content_type == "application/vnd.mapbox-vector-tile"
+        result = f"✓ a test tile came back ({len(body) / 1024:.0f} KB)" if ok else f"✗ a test tile failed: {status} ({content_type})"
+        print(f"\n  {l['id']}: {result}")
+        print(f"  {base}/collections/{l['id']}/tiles/WebMercatorQuad/{{z}}/{{y}}/{{x}}?f=mvt")
+
+
+# ------------------------------------------------------------------
+# The extra notebook (extra-why-ogc-api.ipynb)
+# ------------------------------------------------------------------
+_measurements: dict[str, dict] = {}
+
+
+def _size(n: int) -> str:
+    return f"{n / 1024 / 1024:.1f} MB" if n > 1024 * 1024 else f"{n / 1024:.1f} KB" if n > 1024 else f"{n} bytes"
+
+
+def fetch(url: str, label: str, data: bytes | None = None, content_type: str | None = None) -> bytes:
+    """GET a URL (or POST `data` to it) and return the raw answer. Counts the
+    requests, bytes and time under `label`, for compare()."""
+    headers = {"Content-Type": content_type} if content_type else {}
+    started = time.time()
+    with urllib.request.urlopen(urllib.request.Request(url, data=data, headers=headers), timeout=300) as res:
+        body, answer_type = res.read(), res.headers.get_content_type()
+    seconds = time.time() - started
+    m = _measurements.setdefault(label, {"requests": 0, "bytes": 0, "seconds": 0.0, "formats": []})
+    m["requests"] += 1
+    m["bytes"] += len(body)
+    m["seconds"] += seconds
+    if answer_type not in m["formats"]:
+        m["formats"].append(answer_type)
+    print(f"→ {answer_type}, {_size(len(body))} in {seconds:.1f} s")
+    return body
+
+
+def compare() -> None:
+    """A table of what each way of answering the question cost, from fetch()'s counts."""
+    from IPython.display import HTML, display
+
+    most = max(m["bytes"] for m in _measurements.values())
+    rows = "".join(
+        f"<tr><td><b>{label}</b></td><td>{m['requests']}</td><td>{', '.join(m['formats'])}</td>"
+        f"<td style='text-align:right'>{_size(m['bytes'])}</td>"
+        f"<td style='width:40%'><div style='background:#2f7d5b;height:12px;"
+        f"width:{max(m['bytes'] / most * 100, 0.3):.1f}%'></div></td></tr>"
+        for label, m in _measurements.items()
+    )
+    display(HTML("<table><tr><th></th><th>Requests</th><th>Answer as</th><th>Downloaded</th><th></th></tr>"
+                 f"{rows}</table>"))
+
+
+MAPLIBRE = "https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl"
+
+
+def show_map(style_layers: list[dict], center=(10.5, 60.5), zoom: float = 6) -> None:
+    """Draw the API's vector tiles in the notebook with MapLibre, styled by `style_layers`.
+
+    Every collection with tiles is a source named after its id, so a style layer
+    says e.g. "source": "kommuner", "source-layer": "kommuner" (the layer name
+    inside the tiles is the table name). The map loads the tiles from the public
+    address, so port 3000 must be public.
+    """
+    from IPython.display import HTML, display
+
+    base = public_url(3000)
+    status, content_type, _ = _fetch_as_qgis(f"{base}/collections?f=json")
+    if status != 200 or content_type != "application/json":
+        print("⚠ The map can't load your tiles while port 3000 is private: "
+              "Ports tab → right-click port 3000 → Port Visibility → Public, then run this cell again.")
+
+    resources = yaml.safe_load(CONFIG_FILE.read_text(encoding="utf-8"))["resources"]
+    sources = {
+        rid: {
+            # From zoom 5 (see the QGIS step in part 2); the map can't zoom out further
+            "type": "vector", "minzoom": 5, "maxzoom": 18,
+            "tiles": [f"{base}/collections/{rid}/tiles/WebMercatorQuad/{{z}}/{{y}}/{{x}}?f=mvt"],
+        }
+        for rid, r in resources.items()
+        if any(p["type"] == "tile" for p in r.get("providers", []))
+    }
+    style = {
+        "version": 8,
+        "glyphs": "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",  # fonts for labels
+        "sources": {
+            "basemap": {
+                "type": "raster", "tileSize": 256, "attribution": "&copy; Kartverket",
+                "tiles": ["https://cache.kartverket.no/v1/wmts/1.0.0/topograatone/default/webmercator/{z}/{y}/{x}.png"],
+            },
+            **sources,
+        },
+        "layers": [{"id": "basemap", "type": "raster", "source": "basemap"}, *style_layers],
+    }
+    container = f"map-{time.time_ns()}"  # each map in the notebook needs its own element
+    display(HTML(f"""<div id="{container}" style="height: 520px"></div><script>
+(function () {{
+  function draw() {{
+    const map = new maplibregl.Map({{container: "{container}", style: {json.dumps(style)},
+                                     center: {json.dumps(list(center))}, zoom: {zoom}, minZoom: 5}});
+    map.addControl(new maplibregl.NavigationControl());
+    // Click a feature to see what the tile holds about it
+    map.on("click", e => {{
+      const f = map.queryRenderedFeatures(e.point).find(f => f.source !== "basemap");
+      if (f) new maplibregl.Popup().setLngLat(e.lngLat)
+        .setHTML("<pre>" + JSON.stringify(f.properties, null, 1) + "</pre>").addTo(map);
+    }});
+  }}
+  // Load MapLibre once, then draw
+  if (window.maplibregl) return draw();
+  const css = document.createElement("link");
+  css.rel = "stylesheet";
+  css.href = "{MAPLIBRE}.css";
+  document.head.appendChild(css);
+  const js = document.createElement("script");
+  js.src = "{MAPLIBRE}.js";
+  js.onload = draw;
+  document.head.appendChild(js);
+}})();
+</script>"""))

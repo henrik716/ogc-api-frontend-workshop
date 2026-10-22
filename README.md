@@ -10,6 +10,7 @@ Everything runs in a GitHub Codespace, so there's nothing to install.
 |---|---|---|
 | **Part 1** | `part1-geopackage.ipynb` | Publish a GeoPackage as an OGC API – Features service |
 | **Part 2** | `part2-postgis.ipynb` | Publish from a PostGIS database, the setup Kartverket recommends, with vector tiles, processes (downloads) and advanced queries |
+| *Extra* | `extra-why-ogc-api.ipynb` | Optional, for the curious (and the live demo): how an OGC API differs from file downloads, WMS and WFS |
 
 ## Get started
 
@@ -36,6 +37,17 @@ Real services at Kartverket follow the [golden path](https://kartverket.github.i
 - **Choosing what to publish:** only the tables listed in the notebook are published.
 - **What you get on top of part 1:** vector tiles (OGC API – Tiles), processes (OGC API – Processes) that power the frontend's downloads (whole collections, or filtered by county or municipality), and CQL2 filters, sorting and attribute selection.
 - **Styling is the client's job:** vector tiles carry no colours, which is why Kartverket's frontend draws every collection in the same green. An optional step has participants open the same tiles in QGIS and colour the municipalities by county, to show that the API serves data and the client decides how it looks.
+
+Part 1's step 7 shows how the API works underneath: content negotiation (one URL, a web page or data), the links and conformance classes clients navigate by, and paging with `next` links.
+
+## Extra: why OGC API?
+
+`extra-why-ogc-api.ipynb` is optional, for people who want to know what's different from what Geonorge already offers, and for live demos. Part 2 points to it in a collapsible box at the end. It needs part 2's API running.
+
+1. **One question, four ways:** "which municipality is Kartverksveien 21 in?", answered by a file from Geonorge's download API (an 11 MB zip of every municipality, extracted months ago), a WMS (a picture, plus text for a pixel), a WFS (an XML request, 300 KB of GML) and the participant's OGC API (one URL, about 2 KB of JSON). A table compares what each cost.
+2. **A picture, or data?** The API's vector tiles drawn with MapLibre in the notebook, from a style (MapLibre style JSON, the format Kartverket's own styles use) that participants edit and re-run. Port 3000 must be public.
+3. **Fresh data:** a town added to PostGIS with SQL shows up in the API and on the map straight away, without a restart.
+4. **Same code, Kartverket's API:** the same requests against Kartverket's demo service.
 
 ### Bringing your own database dump
 
@@ -72,6 +84,7 @@ The layout follows [ogc-api-starter](https://github.com/kartverket/ogc-api-start
 |---|---|
 | `part1-geopackage.ipynb` | Part 1: publish a GeoPackage |
 | `part2-postgis.ipynb` | Part 2: publish from PostGIS |
+| `extra-why-ogc-api.ipynb` | Extra: OGC API compared with file downloads, WMS and WFS |
 | `config/pygeoapi-config.yml` | The API configuration. The notebooks write it; both images are built with it |
 | `backend/Dockerfile` | pygeoapi: Kartverket's image + your config + your data |
 | `frontend/Dockerfile` | The frontend: Kartverket's image + your config |
@@ -98,4 +111,6 @@ Prefer a terminal? `docker compose up -d --build` and `docker compose down` work
 - **Database:** PostGIS runs in the Codespace with fixed workshop credentials (`postgres`/`qwer1234`, as in the starter kit). Its data survives `stop()` in a Docker volume. `docker compose --profile postgis down -v` wipes it; the next start reloads `adm`.
 - **"Method Not Allowed" on a process:** opening `/processes/<id>/execution` in a browser sends a GET, but processes only run on a POST with the inputs as JSON. Use the frontend's download panel, or `run_process()` as in step 7 of part 2.
 - **Area downloads:** Kartverket's `export-by-area-gpkg` process only knows two kinds of area, `fylke` and `kommune`, and expects the collections `fylker` and `kommuner`.
+- **QGIS shows nothing:** run `check_qgis(...)` (step 8 of part 1, step 8 of part 2). It requests the API from outside the Codespace, the way QGIS does, and reports a private port. For vector tiles, set **Min. zoom** to 5 in QGIS: pygeoapi 0.24 transforms only the four corners of each tile into the storage CRS when it selects features, so in EPSG:25833 the most zoomed-out tiles come out wrong (5 of 357 municipalities at zoom 0, Rana/Lurøy/Træna missing at zoom 2–3). Kartverket's own demo service shows the same thing.
+- **Internet services:** only the extra notebook depends on outside services: Geonorge's address API, download API, WMS and WFS, Kartverket's basemap (`cache.kartverket.no`), MapLibre and its fonts (`unpkg.com`, `demotiles.maplibre.org`), and Kartverket's demo OGC API (`datadeling-ogcapi.atgcp1-dev.kartverket.cloud`, a test environment). If one of them is down, only that cell fails.
 - **Ports:** Codespaces ports are private by default. Participants who want to open their API in QGIS or share it make port 3000 public in the Ports tab. Everything goes through that one port: the frontend serves the pages and proxies all API requests to pygeoapi, and pygeoapi's own links point there too.
