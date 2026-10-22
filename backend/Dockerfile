@@ -5,3 +5,7 @@ USER 150
 COPY config/pygeoapi-config.yml /pygeoapi/pygeoapi-config.yml
 # The GeoPackage(s) the config points at (source: /data/...)
 COPY data/ /data/
+# pygeoapi's vector tile provider, with a fix for the most zoomed-out tiles
+# (see "OGC API workshop patch" in the file). Written for pygeoapi 0.24.0, the
+# version in the image above: compare it with upstream before updating the image.
+COPY backend/mvt_postgresql.py /pygeoapi/pygeoapi/provider/mvt_postgresql.py

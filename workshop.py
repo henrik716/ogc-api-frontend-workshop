@@ -8,6 +8,7 @@ the things participants actually decide: their data and their metadata.
 
 import copy
 import gzip
+import html
 import json
 import math
 import os
@@ -717,9 +718,29 @@ def stop() -> None:
     compose("--profile", "postgis", "down")
 
 
-def show_links(layers: list[dict]) -> None:
-    from IPython.display import Markdown, display
+def show_urls(rows: list[tuple], openable: bool = True) -> None:
+    """A table of (label, URL) rows, each URL with a Copy button: notebook
+    output turns URLs into links, which are awkward to copy. `openable` adds
+    an Open link too (not for tile URL templates, which aren't pages)."""
+    from IPython.display import HTML, display
 
+    # Copy with the clipboard API, or by selecting the text where that's not allowed
+    copy = ("const i = this.parentNode.querySelector('input'); i.select(); "
+            "(navigator.clipboard ? navigator.clipboard.writeText(i.value) : Promise.reject())"
+            ".catch(() => document.execCommand('copy')).finally(() => this.textContent = 'Copied');")
+    cells = []
+    for label, url in rows:
+        url = html.escape(url, quote=True)
+        open_link = f' <a href="{url}" target="_blank">Open</a>' if openable else ""
+        cells.append(
+            f"<tr><td>{label}</td><td style='white-space: nowrap'>"
+            f"<input readonly value=\"{url}\" onclick=\"this.select()\" "
+            f"style='width: 46em; font-family: monospace; font-size: 12px'> "
+            f"<button onclick=\"{html.escape(copy, quote=True)}\">Copy</button>{open_link}</td></tr>")
+    display(HTML(f"<table>{''.join(cells)}</table>"))
+
+
+def show_links(layers: list[dict]) -> None:
     # One address for everything: the frontend serves the pages and passes
     # every other request (?f=json, /openapi, tiles, ...) on to pygeoapi.
     base = public_url(3000)
@@ -734,12 +755,12 @@ def show_links(layers: list[dict]) -> None:
         rows.append(("Processes (OGC API – Processes)", f"{base}/processes"))
     for l in layers:
         rows += [
-            (f"`{l['id']}`: collection page", f"{base}/collections/{l['id']}"),
-            (f"`{l['id']}`: features as GeoJSON", f"{base}/collections/{l['id']}/items?f=json"),
+            (f"<code>{l['id']}</code>: collection page", f"{base}/collections/{l['id']}"),
+            (f"<code>{l['id']}</code>: features as GeoJSON", f"{base}/collections/{l['id']}/items?f=json"),
         ]
         if any(p["type"] == "tile" for p in resources.get(l["id"], {}).get("providers", [])):
-            rows.append((f"`{l['id']}`: vector tiles", f"{base}/collections/{l['id']}/tiles"))
-    display(Markdown("| | |\n|---|---|\n" + "\n".join(f"| {a} | <{b}> |" for a, b in rows)))
+            rows.append((f"<code>{l['id']}</code>: vector tiles", f"{base}/collections/{l['id']}/tiles"))
+    show_urls(rows)
 
 
 # ------------------------------------------------------------------
@@ -770,6 +791,25 @@ def _tile_at(lon: float, lat: float, z: int) -> tuple[int, int]:
     return col, row
 
 
+def make_public(port: int = 3000) -> None:
+    """Make the Codespace's port public, as Ports tab → right-click → Port Visibility → Public does."""
+    codespace = os.environ.get("CODESPACE_NAME")
+    if not codespace:
+        print("Not in a Codespace, so there's no port visibility to change.")
+        return
+    manual = (f"  Do it by hand instead: Ports tab → right-click port {port} → Port Visibility → Public.")
+    try:
+        proc = subprocess.run(["gh", "codespace", "ports", "visibility", f"{port}:public", "-c", codespace],
+                              capture_output=True, text=True)
+    except FileNotFoundError:
+        print("✗ The GitHub CLI (gh) isn't installed in this Codespace.\n" + manual)
+        return
+    if proc.returncode != 0:
+        print(f"✗ Couldn't make port {port} public: {(proc.stderr or proc.stdout).strip()}\n" + manual)
+        return
+    print(f"✓ Port {port} is public: anyone with the link can now use your API.")
+
+
 def check_qgis(layers: list[dict]) -> None:
     """Check that the API can be reached from outside the Codespace, as QGIS
     reaches it, and print the vector tile URLs in the form QGIS wants."""
@@ -783,30 +823,33 @@ def check_qgis(layers: list[dict]) -> None:
         else:
             print("  Is the API running? Run the 'Start your API' step again.")
         return
-    print(f"✓ Your API can be reached from outside the Codespace: {base}")
+    print("✓ Your API can be reached from outside the Codespace.")
+    rows = [("The API (OGC API – Features in QGIS or ArcGIS)", base)]
 
     resources = yaml.safe_load(CONFIG_FILE.read_text(encoding="utf-8"))["resources"]
     tiled = [l for l in layers
              if any(p["type"] == "tile" for p in resources.get(l["id"], {}).get("providers", []))]
-    if not tiled:
-        return
-    print("\nVector tile URLs for QGIS (Min. zoom 5, Max. zoom 18):")
     for l in tiled:
-        # Fetch one real tile: the one holding the collection's first feature, at zoom 5
+        # Fetch two real tiles holding the collection's first feature: the
+        # whole-world one at zoom 0, and one at zoom 5
         coords = get_json(f"/collections/{l['id']}/items", {"limit": 1})["features"][0]["geometry"]["coordinates"]
         while isinstance(coords[0], list):
             coords = coords[0]
-        col, row = _tile_at(coords[0], coords[1], 5)
-        status, content_type, body = _fetch_as_qgis(
-            f"{base}/collections/{l['id']}/tiles/WebMercatorQuad/5/{row}/{col}?f=mvt")
-        ok = status == 200 and content_type == "application/vnd.mapbox-vector-tile"
-        result = f"✓ a test tile came back ({len(body) / 1024:.0f} KB)" if ok else f"✗ a test tile failed: {status} ({content_type})"
-        print(f"\n  {l['id']}: {result}")
-        print(f"  {base}/collections/{l['id']}/tiles/WebMercatorQuad/{{z}}/{{y}}/{{x}}?f=mvt")
+        results = []
+        for z in (0, 5):
+            col, row = _tile_at(coords[0], coords[1], z)
+            status, content_type, body = _fetch_as_qgis(
+                f"{base}/collections/{l['id']}/tiles/WebMercatorQuad/{z}/{row}/{col}?f=mvt")
+            ok = status == 200 and content_type == "application/vnd.mapbox-vector-tile"
+            results.append(f"zoom {z} ✓ ({len(body) / 1024:.0f} KB)" if ok else f"zoom {z} ✗ ({status}, {content_type})")
+        print(f"  {l['id']}: test tiles " + ", ".join(results))
+        rows.append((f"<code>{l['id']}</code>: vector tiles for QGIS",
+                     f"{base}/collections/{l['id']}/tiles/WebMercatorQuad/{{z}}/{{y}}/{{x}}?f=mvt"))
+    show_urls(rows, openable=False)
 
 
 # ------------------------------------------------------------------
-# The extra notebook (extra-why-ogc-api.ipynb)
+# Part 3 (part3-why-ogc-api.ipynb)
 # ------------------------------------------------------------------
 _measurements: dict[str, dict] = {}
 
@@ -865,14 +908,13 @@ def show_map(style_layers: list[dict], center=(10.5, 60.5), zoom: float = 6) -> 
     base = public_url(3000)
     status, content_type, _ = _fetch_as_qgis(f"{base}/collections?f=json")
     if status != 200 or content_type != "application/json":
-        print("⚠ The map can't load your tiles while port 3000 is private: "
+        print("⚠ The map can't load your tiles while port 3000 is private. Run make_public(), or: "
               "Ports tab → right-click port 3000 → Port Visibility → Public, then run this cell again.")
 
     resources = yaml.safe_load(CONFIG_FILE.read_text(encoding="utf-8"))["resources"]
     sources = {
         rid: {
-            # From zoom 5 (see the QGIS step in part 2); the map can't zoom out further
-            "type": "vector", "minzoom": 5, "maxzoom": 18,
+            "type": "vector", "maxzoom": 18,
             "tiles": [f"{base}/collections/{rid}/tiles/WebMercatorQuad/{{z}}/{{y}}/{{x}}?f=mvt"],
         }
         for rid, r in resources.items()
@@ -893,9 +935,27 @@ def show_map(style_layers: list[dict], center=(10.5, 60.5), zoom: float = 6) -> 
     container = f"map-{time.time_ns()}"  # each map in the notebook needs its own element
     display(HTML(f"""<div id="{container}" style="height: 520px"></div><script>
 (function () {{
+  // VS Code puts outputs in shadow roots, where document.getElementById can't
+  // see them, so look inside those too
+  function find(root) {{
+    const hit = root.getElementById("{container}");
+    if (hit) return hit;
+    for (const node of root.querySelectorAll("*")) {{
+      const inner = node.shadowRoot && find(node.shadowRoot);
+      if (inner) return inner;
+    }}
+    return null;
+  }}
+  const el = find(document);
+  // The stylesheet goes next to the map, so it applies inside a shadow root too
+  const css = document.createElement("link");
+  css.rel = "stylesheet";
+  css.href = "{MAPLIBRE}.css";
+  el.parentNode.insertBefore(css, el);
+
   function draw() {{
-    const map = new maplibregl.Map({{container: "{container}", style: {json.dumps(style)},
-                                     center: {json.dumps(list(center))}, zoom: {zoom}, minZoom: 5}});
+    const map = new maplibregl.Map({{container: el, style: {json.dumps(style)},
+                                     center: {json.dumps(list(center))}, zoom: {zoom}}});
     map.addControl(new maplibregl.NavigationControl());
     // Click a feature to see what the tile holds about it
     map.on("click", e => {{
@@ -904,15 +964,13 @@ def show_map(style_layers: list[dict], center=(10.5, 60.5), zoom: float = 6) -> 
         .setHTML("<pre>" + JSON.stringify(f.properties, null, 1) + "</pre>").addTo(map);
     }});
   }}
-  // Load MapLibre once, then draw
+  // Load MapLibre once (another map may already be loading it), then draw
   if (window.maplibregl) return draw();
-  const css = document.createElement("link");
-  css.rel = "stylesheet";
-  css.href = "{MAPLIBRE}.css";
-  document.head.appendChild(css);
+  if (window.maplibreWaiting) return window.maplibreWaiting.push(draw);
+  window.maplibreWaiting = [draw];
   const js = document.createElement("script");
   js.src = "{MAPLIBRE}.js";
-  js.onload = draw;
+  js.onload = () => window.maplibreWaiting.forEach(f => f());
   document.head.appendChild(js);
 }})();
 </script>"""))
