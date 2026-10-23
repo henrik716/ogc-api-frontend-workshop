@@ -126,6 +126,32 @@ def _text(value) -> str:
     return value or ""
 
 
+# The boxes the process helpers draw in: a frame and a faint tint, both
+# see-through, so they suit a light and a dark notebook theme
+_BOX = "border: 1px solid #8886; border-radius: 8px; padding: 8px 12px; background: #8881"
+
+# What a process sends back, in words
+_RESULT_KINDS = {
+    "application/json": "data (JSON)",
+    "application/geopackage+sqlite3": "a GeoPackage file",
+    "text/csv": "a CSV file",
+}
+
+
+def list_processes() -> None:
+    """The processes the API offers, from /processes: the menu."""
+    from IPython.display import HTML, display
+
+    print("GET /processes\n")
+    cards = "".join(
+        f"<div style='{_BOX}; flex: 1 1 230px'><b>{html.escape(_text(p.get('title')))}</b><br>"
+        f"<code>{html.escape(p['id'])}</code>"
+        f"<div style='margin-top: 6px; opacity: .8'>{html.escape(_text(p.get('description')))}</div></div>"
+        for p in get_json("/processes")["processes"]
+    )
+    display(HTML(f"<div style='display: flex; flex-wrap: wrap; gap: 10px'>{cards}</div>"))
+
+
 def describe_process(process_id: str) -> None:
     """Show what a process says about itself at /processes/<id>: what it does,
     the inputs it takes, and what it sends back. This is all a client needs to
@@ -136,40 +162,72 @@ def describe_process(process_id: str) -> None:
     print(f"GET /processes/{process_id}\n")
 
     def schema_text(schema: dict) -> str:
+        # Allowed values as chips, so the choices stand out
         if "enum" in schema:
-            return " | ".join(f'"{v}"' for v in schema["enum"])
-        return schema.get("contentMediaType") or schema.get("type", "")
+            return " ".join(f"<code style='{_BOX}; padding: 0 6px'>{html.escape(str(v))}</code>" for v in schema["enum"])
+        if kind := schema.get("contentMediaType"):
+            return html.escape(_RESULT_KINDS.get(kind, kind))
+        kind = schema.get("type", "")
+        return {"string": "any text", "number": "a number", "integer": "a whole number",
+                "boolean": "true or false", "array": "a list"}.get(kind, html.escape(kind))
 
     def table(header: list[str], rows: list[list[str]]) -> str:
         th = "".join(f"<th style='text-align: left'>{h}</th>" for h in header)
         trs = "".join("<tr>" + "".join(f"<td style='text-align: left'>{c}</td>" for c in r) + "</tr>" for r in rows)
         return f"<table><tr>{th}</tr>{trs}</table>"
 
+    required = [name for name, i in p.get("inputs", {}).items() if i.get("minOccurs", 1) >= 1]
+    optional = [name for name in p.get("inputs", {}) if name not in required]
     inputs = [
         [f"<code>{html.escape(name)}</code>",
-         "yes" if i.get("minOccurs", 1) >= 1 else "no",
-         f"<code>{html.escape(schema_text(i.get('schema', {})))}</code>",
+         "<b>✱ required</b>" if name in required else "optional",
+         schema_text(i.get("schema", {})),
          html.escape(_text(i.get("description")) or _text(i.get("title")))]
         for name, i in p.get("inputs", {}).items()
     ]
     outputs = [
         [f"<code>{html.escape(name)}</code>",
-         f"<code>{html.escape(schema_text(o.get('schema', {})))}</code>",
+         schema_text(o.get("schema", {})),
          html.escape(_text(o.get("description")) or _text(o.get("title")))]
         for name, o in p.get("outputs", {}).items()
     ]
+    names = lambda ns: ", ".join(f"<code>{html.escape(n)}</code>" for n in ns)
+    summary = f"To run it, you give {names(required) or 'nothing'}"
+    if optional:
+        summary += f", and if you like {names(optional)}"
     display(HTML(
-        f"<p><b>{html.escape(_text(p.get('title')))}</b><br>{html.escape(_text(p.get('description')))}</p>"
-        f"<p><b>Inputs</b></p>{table(['Input', 'Required', 'Type', 'Description'], inputs)}"
-        f"<p><b>Output</b></p>{table(['Output', 'Type', 'Description'], outputs)}"
+        f"<div style='{_BOX}'><b>{html.escape(_text(p.get('title')))}</b><br>{html.escape(_text(p.get('description')))}"
+        f"<div style='margin-top: 6px'>{summary}.</div></div>"
+        f"<p><b>What it takes</b></p>{table(['Input', '', 'Allowed values', 'Description'], inputs)}"
+        f"<p><b>What you get back</b></p>{table(['Output', 'Type', 'Description'], outputs)}"
     ))
 
 
 _last_process_run = 0.0
 
 
+def _show_run(process_id: str, inputs: dict, answer: str, http: str) -> None:
+    """A run as an order slip and what came back, with the HTTP behind it folded away."""
+    from IPython.display import HTML, display
+
+    rows = "".join(
+        f"<tr><td style='padding: 1px 12px 1px 0; opacity: .75'>{html.escape(k)}</td>"
+        f"<td style='padding: 1px 0'><b>{html.escape(v if isinstance(v, str) else json.dumps(v, ensure_ascii=False))}</b></td></tr>"
+        for k, v in inputs.items()
+    ) or "<tr><td style='opacity: .75'>(no inputs)</td></tr>"
+    display(HTML(
+        "<div style='display: flex; flex-wrap: wrap; align-items: center; gap: 10px'>"
+        f"<div style='{_BOX}'><div style='opacity: .75'>You sent an order to</div><code>{html.escape(process_id)}</code>"
+        f"<table style='margin: 6px 0 0'>{rows}</table></div>"
+        "<div style='font-size: 22px; opacity: .6'>⟶</div>"
+        f"<div style='{_BOX}'><div style='opacity: .75'>You got back</div>{answer}</div></div>"
+        "<details style='margin-top: 8px'><summary>The request and the response, exactly as sent</summary>"
+        f"<pre>{html.escape(http)}</pre></details>"
+    ))
+
+
 def run_process(process_id: str, inputs: dict):
-    """Run an OGC API process, show the request and the response, and return
+    """Run an OGC API process, show what was sent and what came back, and return
     the result: parsed JSON, or the raw bytes of a file.
 
     Execution is a POST with the inputs as JSON (a browser opening the
@@ -179,7 +237,7 @@ def run_process(process_id: str, inputs: dict):
     """
     global _last_process_run
     body = json.dumps({"inputs": inputs}, ensure_ascii=False, indent=2)
-    print(f"POST /processes/{process_id}/execution\nContent-Type: application/json\n\n{body}\n")
+    request = f"POST /processes/{process_id}/execution\nContent-Type: application/json\n\n{body}\n\n"
     req = urllib.request.Request(
         f"http://localhost:5001/processes/{process_id}/execution",
         data=body.encode("utf-8"),
@@ -197,14 +255,18 @@ def run_process(process_id: str, inputs: dict):
             detail = json.loads(detail).get("description", detail)
         except ValueError:
             pass
+        _show_run(process_id, inputs, f"<b>✗ An error ({err.code})</b><br>{html.escape(detail)}",
+                  request + f"→ {err.code} {err.reason}\n\n{detail}")
         raise SystemExit(f"✗ The process '{process_id}' failed ({err.code}): {detail}")
-    print(f"→ {status} {reason}, Content-Type: {content_type}, {_size(len(result))} "
-          f"in {_duration(time.time() - _last_process_run)}")
+    took = _duration(time.time() - _last_process_run)
+    response = f"→ {status} {reason}, Content-Type: {content_type}, {_size(len(result))} in {took}"
     if content_type == "application/json":
         text = result.decode("utf-8")
-        print(text[:300] + (" …" if len(text) > 300 else ""))
-        return json.loads(text)
-    return result
+        response += "\n\n" + text[:300] + (" …" if len(text) > 300 else "")
+    kind = _RESULT_KINDS.get(content_type, content_type)
+    _show_run(process_id, inputs, f"<b>✓ {html.escape(kind)}</b><br>{_size(len(result))}, in {took}",
+              request + response)
+    return json.loads(result) if content_type == "application/json" else result
 
 
 def show_server_log() -> None:
@@ -224,6 +286,123 @@ def show_server_log() -> None:
     print("What the server logged while the process ran:\n")
     for line in lines:
         print("  " + re.sub(r"^\[[^\]]*\]\s*\{[^}]*/([^/}]+:\d+)\}", r"\1", line))
+
+
+def _read_features(path, layer: str | None = None) -> list[tuple[dict, object]]:
+    """(attributes, geometry in EPSG:25833) for every feature in a GeoPackage,
+    or in one of its layers."""
+    con = sqlite3.connect(f"file:{Path(path).resolve()}?mode=ro", uri=True)
+    tables = con.execute(
+        """
+        SELECT g.table_name, g.column_name, s.organization, s.organization_coordsys_id
+        FROM gpkg_geometry_columns g LEFT JOIN gpkg_spatial_ref_sys s ON s.srs_id = g.srs_id
+        """
+    ).fetchall()
+    features = []
+    for table, geom_col, org, code in tables:
+        if layer and table != layer:
+            continue
+        # Without an EPSG code, assume lon/lat, which is what most tools write then
+        epsg = int(code) if (org or "").upper() == "EPSG" else 4326
+        cursor = con.execute(f'SELECT * FROM "{table}" WHERE "{geom_col}" IS NOT NULL')
+        columns = [d[0] for d in cursor.description]
+        rows = cursor.fetchall()
+        blobs = [r[columns.index(geom_col)] for r in rows]
+        # header: "GP", version, flags, srs_id, envelope; then the geometry as WKB
+        geoms = shapely.from_wkb([bytes(b[8 + _ENVELOPE_BYTES[(b[3] >> 1) & 0b111]:]) for b in blobs])
+        if epsg != 25833:
+            geoms = shapely.transform(geoms, Transformer.from_crs(epsg, 25833, always_xy=True).transform,
+                                      interleaved=False)
+        for row, geom in zip(rows, geoms):
+            features.append(({c: v for c, v in zip(columns, row) if c != geom_col}, geom))
+    con.close()
+    return features
+
+
+def show_file_on_map(path, area_type: str | None = None, area_name: str | None = None) -> None:
+    """Draw what's in a GeoPackage (e.g. a download) on a small map of Norway,
+    with the county or municipality it was cut out by, if any, in green."""
+    from IPython.display import HTML, display
+
+    result = _read_features(path)
+    # The counties and municipalities to draw around it: the simplified ones from part 1's GeoPackage
+    counties = [g for _, g in _read_features(DATA_DIR / "demo.gpkg", "fylker")]
+    area = None
+    if area_type in ("fylke", "kommune"):
+        layer = {"fylke": "fylker", "kommune": "kommuner"}[area_type]
+        area = next((g for a, g in _read_features(DATA_DIR / "demo.gpkg", layer) if a.get("navn") == area_name), None)
+
+    # Frame the area and the features, with some room around them
+    shown = [g for g in [area, *(g for _, g in result)] if g is not None]
+    if not shown:
+        print("There's nothing in the file to draw.")
+        return
+    minx, miny, maxx, maxy = shapely.total_bounds(shown)
+    pad = max(maxx - minx, maxy - miny, 20_000) * 0.25
+    minx, miny, maxx, maxy = minx - pad, miny - pad, maxx + pad, maxy + pad
+    width, height = maxx - minx, maxy - miny
+    tolerance = max(width, height) / 600  # simplify to the detail the picture can show
+    unit = max(width, height) / 100  # sizes of dots and labels, relative to the frame
+
+    def path_d(geom) -> str:
+        # SVG's y runs down, map y runs up: flip it with y -> -y
+        geom = shapely.simplify(geom, tolerance)
+        rings = []
+        for polygon in getattr(geom, "geoms", [geom]):
+            for ring in [polygon.exterior, *polygon.interiors]:
+                rings.append("M" + "L".join(f"{x:.0f},{-y:.0f}" for x, y in ring.coords) + "Z")
+        return "".join(rings)
+
+    shapes = [f"<path d='{path_d(g)}' fill='#e4e7eb' stroke='#ffffff' stroke-width='{unit / 6:.0f}'/>" for g in counties]
+    if area is not None:
+        shapes.append(f"<path d='{path_d(area)}' fill='#2f7d5b33' stroke='#2f7d5b' stroke-width='{unit / 3:.0f}'/>")
+    names = []
+    for attributes, geom in result:
+        if geom.geom_type in ("Polygon", "MultiPolygon"):
+            shapes.append(f"<path d='{path_d(geom)}' fill='#c0392b55' stroke='#c0392b' stroke-width='{unit / 5:.0f}'/>")
+        elif geom.geom_type in ("LineString", "MultiLineString"):
+            lines = getattr(geom, "geoms", [geom])
+            d = "".join("M" + "L".join(f"{x:.0f},{-y:.0f}" for x, y in l.coords) for l in lines)
+            shapes.append(f"<path d='{d}' fill='none' stroke='#c0392b' stroke-width='{unit / 3:.0f}'/>")
+        else:
+            for p in getattr(geom, "geoms", [geom]):
+                shapes.append(f"<circle cx='{p.x:.0f}' cy='{-p.y:.0f}' r='{unit:.0f}' fill='#c0392b' stroke='#ffffff' stroke-width='{unit / 4:.0f}'/>")
+        name = attributes.get("navn")
+        if name and len(result) <= 50:
+            p = geom.representative_point()
+            names.append(f"<text x='{p.x + unit * 1.6:.0f}' y='{-p.y + unit * 0.7:.0f}'>{html.escape(str(name))}</text>")
+
+    label = {"fylke": "county", "kommune": "municipality"}.get(area_type)
+    caption = f"<b>{len(result)} feature{'s' if len(result) != 1 else ''}</b> in <code>{html.escape(Path(path).name)}</code>"
+    if area is not None:
+        caption += f", the {label} {html.escape(area_name)} in green"
+    elif area_type:
+        caption += f" (the {label} {html.escape(str(area_name))} isn't in demo.gpkg, so it isn't drawn)"
+    display(HTML(
+        f"<p>{caption}</p>"
+        f"<svg viewBox='{minx:.0f} {-maxy:.0f} {width:.0f} {height:.0f}' style='width: 100%; max-width: 560px; "
+        f"max-height: 560px; background: #dbe8f1; border-radius: 8px'>{''.join(shapes)}"
+        f"<g font-family='system-ui, sans-serif' font-size='{unit * 3:.0f}' fill='#1f2933' stroke='#ffffff' "
+        f"stroke-width='{unit * 0.6:.0f}' paint-order='stroke'>{''.join(names)}</g></svg>"
+    ))
+
+
+def show_csv(data: bytes, rows: int = 5) -> None:
+    """The start of a CSV file as a table, and how many rows it has."""
+    import csv
+    from IPython.display import HTML, display
+
+    table = list(csv.reader(io.StringIO(data.decode("utf-8-sig"))))
+    if not table:
+        print("The file is empty.")
+        return
+    header, body = table[0], table[1:]
+    cell = lambda v: html.escape(v[:60] + ("…" if len(v) > 60 else ""))
+    th = "".join(f"<th style='text-align: left'>{cell(h)}</th>" for h in header)
+    trs = "".join("<tr>" + "".join(f"<td style='text-align: left'>{cell(v)}</td>" for v in r) + "</tr>" for r in body[:rows])
+    more = f"<p>… and {len(body) - rows} more.</p>" if len(body) > rows else ""
+    display(HTML(f"<p><b>{len(body)} row{'s' if len(body) != 1 else ''}</b> in the CSV file. "
+                 f"The first ones:</p><table><tr>{th}</tr>{trs}</table>{more}"))
 
 
 def wait_until_ready(timeout: int = 120) -> None:

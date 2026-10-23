@@ -50,7 +50,7 @@ Real services at Kartverket follow the [golden path](https://kartverket.github.i
 5. **Generate the configuration:** each collection gets a `PostgreSQL` provider and an `MVT-postgresql` provider (the vector tiles). The connection details are `${DB_*}` placeholders, as on SKIP. Kartverket's processes are added at the top.
 6. **Start your API.** The frontend now has tiles and a download panel.
 7. **Advanced queries:** sorting, choosing attributes, CQL2 filters, and how a client finds the tiles.
-8. **Downloads (OGC API – Processes):** list, describe and run a process; a download step by step, with what the server logged; the same request from the frontend in the browser's developer tools; and an exercise to export one municipality's towns as CSV.
+8. **Downloads (OGC API – Processes):** a process is a job the server does for you, explained like ordering food: list the processes (the menu), describe one (its order form) and run it (place the order). Then a download step by step: a diagram of what the server does behind the scenes, what it logged, and the file drawn on a map. Optionally, the same request from the frontend in the browser's developer tools. It ends with an exercise to export one municipality's towns as CSV.
 9. **Style the tiles yourself:** vector tiles carry no colours, which is why the frontend draws every collection in the same green. A style editor in the notebook draws the tiles with MapLibre: presets, colour by county or by area, background map, borders, names and 3D, with the MapLibre style JSON the choices add up to. Then, optionally, the same in QGIS. The map loads the tiles from the public address, so this step makes port 3000 public.
 10. **Fresh data:** add a town to PostGIS with SQL, and it shows up in the API and on the map straight away, without a restart.
 11. **How this works on SKIP:** where the `${DB_*}` values come from in production.
@@ -118,6 +118,7 @@ The layout follows [ogc-api-starter](https://github.com/kartverket/ogc-api-start
 | `part2-postgis.ipynb` | Part 2: publish from PostGIS |
 | `part3-why-ogc-api.ipynb` | Part 3 (optional): OGC API compared with file downloads, WMS and WFS |
 | `workshop.py` | What the notebooks call: reading the data, the metadata editors, writing the config, running Docker, the maps and the style editor |
+| `images/` | The diagrams in part 2's step 8 |
 | `config/pygeoapi-config.yml` | The API configuration. The notebooks write it; both images are built with it |
 | `config/part1-metadata.json`, `config/part2-metadata.json` | The metadata participants edit in steps 3–4 (in a form or as JSON); the notebooks turn it into the config |
 | `backend/Dockerfile` | pygeoapi: Kartverket's image + your config + your data |

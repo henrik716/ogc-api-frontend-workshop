@@ -1,0 +1,87 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 340" width="900" height="340" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif">
+  <title>What the server does when you run export-by-area-gpkg</title>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0,0 L10,5 L0,10 Z" fill="#5f6b7a"/>
+    </marker>
+    <!-- a county, for the steps -->
+    <path id="county" d="M22,8 L58,4 L72,22 L66,44 L76,64 L52,78 L26,72 L10,50 L14,28 Z"/>
+  </defs>
+  <rect width="900" height="340" rx="12" fill="#f6f7f9"/>
+
+  <!-- You -->
+  <g transform="translate(20 62)">
+    <rect width="220" height="216" rx="10" fill="#ffffff" stroke="#d5dae0"/>
+    <text x="16" y="30" font-size="17" font-weight="700" fill="#1f2933">You</text>
+    <text x="16" y="48" font-size="12" fill="#5f6b7a">the notebook, or the frontend</text>
+    <rect x="16" y="62" width="188" height="118" rx="6" fill="#eef5f1" stroke="#2f7d5b"/>
+    <text x="28" y="84" font-size="12" font-weight="700" fill="#2f7d5b" font-family="ui-monospace, Consolas, monospace">export-by-area-gpkg</text>
+    <g font-size="12" font-family="ui-monospace, Consolas, monospace">
+      <text x="28" y="110" fill="#5f6b7a">collection_id</text><text x="134" y="110" font-weight="700" fill="#1f2933">byer</text>
+      <text x="28" y="134" fill="#5f6b7a">area_type</text><text x="134" y="134" font-weight="700" fill="#1f2933">fylke</text>
+      <text x="28" y="158" fill="#5f6b7a">area_name</text><text x="134" y="158" font-weight="700" fill="#1f2933">Vestland</text>
+    </g>
+    <text x="16" y="202" font-size="12" fill="#5f6b7a" font-style="italic">"The towns in Vestland, please"</text>
+  </g>
+
+  <!-- The order goes in, the file comes back -->
+  <line x1="246" y1="120" x2="316" y2="120" stroke="#5f6b7a" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="281" y="108" text-anchor="middle" font-size="12" fill="#1f2933">the order</text>
+  <line x1="316" y1="230" x2="246" y2="230" stroke="#5f6b7a" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="281" y="218" text-anchor="middle" font-size="12" fill="#1f2933">the file</text>
+
+  <!-- Inside the API -->
+  <g transform="translate(322 20)">
+    <rect width="558" height="300" rx="10" fill="#ffffff" stroke="#5f6b7a" stroke-dasharray="6 5"/>
+    <text x="18" y="30" font-size="17" font-weight="700" fill="#1f2933">Inside your API</text>
+    <text x="160" y="30" font-size="12" fill="#5f6b7a">what you never see from outside</text>
+
+    <!-- Step 1 -->
+    <g transform="translate(18 52)">
+      <rect width="160" height="228" rx="8" fill="#f6f7f9"/>
+      <circle cx="22" cy="22" r="12" fill="#2f7d5b"/>
+      <text x="22" y="27" text-anchor="middle" font-size="13" font-weight="700" fill="#ffffff">1</text>
+      <use href="#county" transform="translate(40 50)" fill="#eef5f1" stroke="#2f7d5b" stroke-width="2.5"/>
+      <text x="12" y="160" font-size="13" font-weight="700" fill="#1f2933">Find Vestland's</text>
+      <text x="12" y="177" font-size="13" font-weight="700" fill="#1f2933">border</text>
+      <text x="12" y="200" font-size="11" fill="#5f6b7a">in the collection</text>
+      <text x="12" y="215" font-size="11" fill="#5f6b7a" font-family="ui-monospace, Consolas, monospace">fylker</text>
+    </g>
+    <line x1="182" y1="166" x2="196" y2="166" stroke="#5f6b7a" stroke-width="2" marker-end="url(#arrow)"/>
+
+    <!-- Step 2 -->
+    <g transform="translate(199 52)">
+      <rect width="160" height="228" rx="8" fill="#f6f7f9"/>
+      <circle cx="22" cy="22" r="12" fill="#2f7d5b"/>
+      <text x="22" y="27" text-anchor="middle" font-size="13" font-weight="700" fill="#ffffff">2</text>
+      <use href="#county" transform="translate(40 50)" fill="#eef5f1" stroke="#2f7d5b" stroke-width="2.5"/>
+      <!-- towns inside, and outside -->
+      <circle cx="70" cy="80" r="5" fill="#c0392b" stroke="#ffffff" stroke-width="1.5"/>
+      <circle cx="88" cy="108" r="5" fill="#c0392b" stroke="#ffffff" stroke-width="1.5"/>
+      <circle cx="132" cy="62" r="5" fill="#b8bfc8"/>
+      <circle cx="136" cy="118" r="5" fill="#b8bfc8"/>
+      <circle cx="30" cy="132" r="5" fill="#b8bfc8"/>
+      <text x="12" y="160" font-size="13" font-weight="700" fill="#1f2933">Pick the towns</text>
+      <text x="12" y="177" font-size="13" font-weight="700" fill="#1f2933">inside it</text>
+      <text x="12" y="200" font-size="11" fill="#5f6b7a">asks the database</text>
+      <text x="12" y="215" font-size="11" fill="#5f6b7a">(PostGIS)</text>
+    </g>
+    <line x1="363" y1="166" x2="377" y2="166" stroke="#5f6b7a" stroke-width="2" marker-end="url(#arrow)"/>
+
+    <!-- Step 3 -->
+    <g transform="translate(380 52)">
+      <rect width="160" height="228" rx="8" fill="#f6f7f9"/>
+      <circle cx="22" cy="22" r="12" fill="#2f7d5b"/>
+      <text x="22" y="27" text-anchor="middle" font-size="13" font-weight="700" fill="#ffffff">3</text>
+      <path d="M52,46 h44 l16,16 v68 h-60 Z" fill="#ffffff" stroke="#c0392b" stroke-width="2"/>
+      <path d="M96,46 v16 h16" fill="none" stroke="#c0392b" stroke-width="2"/>
+      <circle cx="70" cy="86" r="4" fill="#c0392b"/>
+      <circle cx="92" cy="102" r="4" fill="#c0392b"/>
+      <text x="82" y="124" text-anchor="middle" font-size="11" font-weight="700" fill="#c0392b">GPKG</text>
+      <text x="12" y="160" font-size="13" font-weight="700" fill="#1f2933">Pack them in</text>
+      <text x="12" y="177" font-size="13" font-weight="700" fill="#1f2933">a GeoPackage</text>
+      <text x="12" y="200" font-size="11" fill="#5f6b7a">and send it back</text>
+      <text x="12" y="215" font-size="11" fill="#5f6b7a">as the answer</text>
+    </g>
+  </g>
+</svg>

@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 270" width="900" height="270" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif">
+  <title>Every process works in three steps: list, describe, run</title>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0,0 L10,5 L0,10 Z" fill="#5f6b7a"/>
+    </marker>
+  </defs>
+  <rect width="900" height="270" rx="12" fill="#f6f7f9"/>
+
+  <!-- 1. List -->
+  <g transform="translate(20 20)">
+    <rect width="260" height="230" rx="10" fill="#ffffff" stroke="#d5dae0"/>
+    <circle cx="28" cy="30" r="14" fill="#2f7d5b"/>
+    <text x="28" y="35" text-anchor="middle" font-size="15" font-weight="700" fill="#ffffff">1</text>
+    <text x="52" y="36" font-size="19" font-weight="700" fill="#1f2933">List</text>
+    <text x="16" y="66" font-size="14" fill="#1f2933">What can the server do?</text>
+    <!-- a menu -->
+    <rect x="80" y="82" width="100" height="84" rx="6" fill="#eef5f1" stroke="#2f7d5b"/>
+    <text x="130" y="100" text-anchor="middle" font-size="11" font-weight="700" fill="#2f7d5b">MENU</text>
+    <circle cx="94" cy="117" r="3" fill="#2f7d5b"/><rect x="102" y="114" width="64" height="6" rx="3" fill="#9cc5ae"/>
+    <circle cx="94" cy="134" r="3" fill="#2f7d5b"/><rect x="102" y="131" width="52" height="6" rx="3" fill="#9cc5ae"/>
+    <circle cx="94" cy="151" r="3" fill="#2f7d5b"/><rect x="102" y="148" width="60" height="6" rx="3" fill="#9cc5ae"/>
+    <text x="16" y="192" font-size="13" fill="#5f6b7a" font-style="italic">Like reading the menu</text>
+    <text x="16" y="214" font-size="12" fill="#5f6b7a" font-family="ui-monospace, Consolas, monospace">GET /processes</text>
+  </g>
+
+  <line x1="284" y1="135" x2="314" y2="135" stroke="#5f6b7a" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- 2. Describe -->
+  <g transform="translate(320 20)">
+    <rect width="260" height="230" rx="10" fill="#ffffff" stroke="#d5dae0"/>
+    <circle cx="28" cy="30" r="14" fill="#2f7d5b"/>
+    <text x="28" y="35" text-anchor="middle" font-size="15" font-weight="700" fill="#ffffff">2</text>
+    <text x="52" y="36" font-size="19" font-weight="700" fill="#1f2933">Describe</text>
+    <text x="16" y="66" font-size="14" fill="#1f2933">What does it need from me?</text>
+    <!-- an order form: labels and fields, the first two required -->
+    <rect x="62" y="82" width="136" height="84" rx="6" fill="#eef5f1" stroke="#2f7d5b"/>
+    <rect x="72" y="94" width="30" height="6" rx="3" fill="#9cc5ae"/><rect x="108" y="90" width="72" height="14" rx="3" fill="#ffffff" stroke="#9cc5ae"/>
+    <text x="186" y="102" font-size="13" font-weight="700" fill="#c0392b">*</text>
+    <rect x="72" y="118" width="30" height="6" rx="3" fill="#9cc5ae"/><rect x="108" y="114" width="72" height="14" rx="3" fill="#ffffff" stroke="#9cc5ae"/>
+    <text x="186" y="126" font-size="13" font-weight="700" fill="#c0392b">*</text>
+    <rect x="72" y="142" width="30" height="6" rx="3" fill="#9cc5ae"/><rect x="108" y="138" width="72" height="14" rx="3" fill="#ffffff" stroke="#9cc5ae"/>
+    <text x="16" y="192" font-size="13" fill="#5f6b7a" font-style="italic">Like reading the order form</text>
+    <text x="16" y="214" font-size="12" fill="#5f6b7a" font-family="ui-monospace, Consolas, monospace">GET /processes/{id}</text>
+  </g>
+
+  <line x1="584" y1="135" x2="614" y2="135" stroke="#5f6b7a" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- 3. Run -->
+  <g transform="translate(620 20)">
+    <rect width="260" height="230" rx="10" fill="#ffffff" stroke="#d5dae0"/>
+    <circle cx="28" cy="30" r="14" fill="#2f7d5b"/>
+    <text x="28" y="35" text-anchor="middle" font-size="15" font-weight="700" fill="#ffffff">3</text>
+    <text x="52" y="36" font-size="19" font-weight="700" fill="#1f2933">Run</text>
+    <text x="16" y="66" font-size="14" fill="#1f2933">Do it, and give me the result</text>
+    <!-- the filled-in order, and the file that comes back -->
+    <rect x="40" y="90" width="64" height="70" rx="6" fill="#eef5f1" stroke="#2f7d5b"/>
+    <rect x="50" y="104" width="44" height="6" rx="3" fill="#2f7d5b"/>
+    <rect x="50" y="120" width="36" height="6" rx="3" fill="#2f7d5b"/>
+    <rect x="50" y="136" width="40" height="6" rx="3" fill="#2f7d5b"/>
+    <line x1="110" y1="125" x2="146" y2="125" stroke="#5f6b7a" stroke-width="2" marker-end="url(#arrow)"/>
+    <path d="M156,86 h46 l16,16 v62 h-62 Z" fill="#ffffff" stroke="#c0392b" stroke-width="2"/>
+    <path d="M202,86 v16 h16" fill="none" stroke="#c0392b" stroke-width="2"/>
+    <text x="187" y="138" text-anchor="middle" font-size="12" font-weight="700" fill="#c0392b">FILE</text>
+    <text x="16" y="192" font-size="13" fill="#5f6b7a" font-style="italic">Like placing the order</text>
+    <text x="16" y="214" font-size="12" fill="#5f6b7a" font-family="ui-monospace, Consolas, monospace">POST /processes/{id}/execution</text>
+  </g>
+</svg>
