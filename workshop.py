@@ -1308,6 +1308,71 @@ def show_map(style_layers: list[dict], center=(10.5, 60.5), zoom: float = 6) -> 
     inside the tiles is the table name). The map loads the tiles from the public
     address, so port 3000 must be public.
     """
+    _draw_map(style_layers, center, zoom)
+
+
+# The controls for style_editor(), and the script that turns them into style layers
+_EDITOR_CONTROLS = """<form style="display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: center; margin-bottom: 8px">
+  <label>Colour by <select name="by">
+    <option value="one">One colour</option>
+    <option value="county" selected>County (fylkesnummer)</option>
+    <option value="area">Area (areal_km2)</option>
+  </select></label>
+  <label>Colour <input type="color" name="colour" value="#2f7d5b"></label>
+  <label>Fill opacity <input type="range" name="opacity" min="0" max="1" step="0.05" value="0.75"></label>
+  <label>Borders <input type="color" name="line" value="#ffffff"></label>
+  <label>Border width <input type="range" name="width" min="0" max="4" step="0.2" value="0.8"></label>
+  <label><input type="checkbox" name="labels" checked> Names</label>
+</form>"""
+
+_EDITOR_SCRIPT = """
+    const form = el.querySelector("form");
+    const out = el.querySelector("pre");
+    const basemap = style.layers;  // the background and the basemap
+    function layers() {
+      const value = name => form.elements[name].value;
+      const fill = {
+        one: value("colour"),
+        // a hue per county, as in STYLE below
+        county: ["to-color", ["concat", "hsl(", ["%", ["*", ["to-number", ["get", "fylkesnummer"]], 37], 360], ", 55%, 70%)"]],
+        // white for the smallest, the chosen colour from 2000 km² and up
+        area: ["interpolate", ["linear"], ["to-number", ["get", "areal_km2"]], 0, "#ffffff", 2000, value("colour")],
+      }[value("by")];
+      const result = [
+        {id: "kommuner-fill", type: "fill", source: "kommuner", "source-layer": "kommuner",
+         paint: {"fill-color": fill, "fill-opacity": Number(value("opacity"))}},
+        {id: "kommuner-line", type: "line", source: "kommuner", "source-layer": "kommuner",
+         paint: {"line-color": value("line"), "line-width": Number(value("width"))}},
+      ];
+      if (form.elements.labels.checked) result.push(
+        {id: "kommuner-label", type: "symbol", source: "kommuner", "source-layer": "kommuner", minzoom: 7,
+         layout: {"text-field": ["get", "navn"], "text-font": ["Open Sans Semibold"], "text-size": 11}});
+      return result;
+    }
+    // Redraw the map and show the style the controls add up to
+    function update() {
+      const result = layers();
+      map.setStyle({...style, layers: [...basemap, ...result]});
+      out.textContent = "STYLE = " + JSON.stringify(result, null, 2);
+    }
+    form.addEventListener("input", update);
+    map.once("style.load", update);
+"""
+
+
+def style_editor(center=(10.5, 60.5), zoom: float = 6) -> None:
+    """The municipalities' vector tiles with controls for colour, opacity, borders
+    and names. Below the map is the style the controls add up to, ready to paste
+    into STYLE."""
+    _draw_map([], center, zoom, controls=_EDITOR_CONTROLS,
+              below="<pre style='max-height: 300px; overflow: auto'></pre>", script=_EDITOR_SCRIPT)
+
+
+def _draw_map(style_layers: list[dict], center, zoom: float, controls: str = "", below: str = "",
+              script: str = "") -> None:
+    """show_map() and style_editor(): `controls` and `below` go above and below the
+    map, and `script` runs once the map is made, with `map`, `el` (the whole
+    output) and `style` to hand."""
     from IPython.display import HTML, display
 
     base = public_url(3000)
@@ -1335,10 +1400,13 @@ def show_map(style_layers: list[dict], center=(10.5, 60.5), zoom: float = 6) -> 
             },
             **sources,
         },
-        "layers": [{"id": "basemap", "type": "raster", "source": "basemap"}, *style_layers],
+        # The basemap tiles are partly transparent (lakes, sea, outside Norway), so
+        # put white under them, or the notebook's own background shows through
+        "layers": [{"id": "background", "type": "background", "paint": {"background-color": "white"}},
+                   {"id": "basemap", "type": "raster", "source": "basemap"}, *style_layers],
     }
     container = f"map-{time.time_ns()}"  # each map in the notebook needs its own element
-    display(HTML(f"""<div id="{container}" style="height: 520px"></div><script>
+    display(HTML(f"""<div id="{container}">{controls}<div class="map" style="height: 520px"></div>{below}</div><script>
 (function () {{
   // VS Code puts outputs in shadow roots, where document.getElementById can't
   // see them, so look inside those too
@@ -1352,6 +1420,7 @@ def show_map(style_layers: list[dict], center=(10.5, 60.5), zoom: float = 6) -> 
     return null;
   }}
   const el = find(document);
+  const mapEl = el.querySelector(".map");
   // The stylesheet goes next to the map, so it applies inside a shadow root too
   const css = document.createElement("link");
   css.rel = "stylesheet";
@@ -1360,15 +1429,16 @@ def show_map(style_layers: list[dict], center=(10.5, 60.5), zoom: float = 6) -> 
 
   // Say what went wrong in the map's place, instead of leaving it blank
   function fail(message) {{
-    el.style.height = "auto";
-    el.textContent = "⚠ The map could not be drawn: " + message;
+    mapEl.style.height = "auto";
+    mapEl.textContent = "⚠ The map could not be drawn: " + message;
   }}
 
   function draw() {{
     if (!window.maplibregl) return fail("MapLibre did not load.");
+    const style = {json.dumps(style)};
     let map;
     try {{
-      map = new maplibregl.Map({{container: el, style: {json.dumps(style)},
+      map = new maplibregl.Map({{container: mapEl, style: style,
                                  center: {json.dumps(list(center))}, zoom: {zoom}}});
     }} catch (err) {{
       return fail(err.message);
@@ -1381,6 +1451,7 @@ def show_map(style_layers: list[dict], center=(10.5, 60.5), zoom: float = 6) -> 
       if (f) new maplibregl.Popup().setLngLat(e.lngLat)
         .setHTML("<pre>" + JSON.stringify(f.properties, null, 1) + "</pre>").addTo(map);
     }});
+{script}
   }}
   // Load MapLibre once (another map may already be loading it), then draw
   if (window.maplibregl) return draw();
