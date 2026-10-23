@@ -6,9 +6,11 @@ running docker compose), kept out of the notebook so its cells stay about
 the things participants actually decide: their data and their metadata.
 """
 
+import contextlib
 import copy
 import gzip
 import html
+import io
 import json
 import math
 import os
@@ -16,6 +18,7 @@ import re
 import shutil
 import sqlite3
 import subprocess
+import sys
 import time
 import urllib.error
 import urllib.parse
@@ -700,6 +703,323 @@ def write_config(config: dict) -> None:
 
     n = sum(r["type"] == "collection" for r in config["resources"].values())
     print(f"✓ Wrote {CONFIG_FILE.relative_to(ROOT)} ({n} collection(s), {'PostGIS' if uses_postgis else 'GeoPackage'})")
+
+
+# ------------------------------------------------------------------
+# Editing the metadata: in a form, or as JSON, with the YAML it becomes
+#
+# The metadata lives in a JSON file (config/part1-metadata.json and
+# config/part2-metadata.json). The form and the JSON view edit the same
+# values, and every change is saved to the file straight away, so it
+# survives a restart or Run All. build_config() turns it into YAML.
+# ------------------------------------------------------------------
+LICENSES = {
+    "CC BY 4.0": "https://creativecommons.org/licenses/by/4.0/",
+    "CC0 1.0": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "NLOD 2.0": "https://data.norge.no/nlod/no/2.0",
+}
+EMPTY_DATASET = {
+    "title": "", "description": "", "keywords": [],
+    "provider": {"name": "", "url": ""},
+    "contact": {"name": "", "email": "", "url": ""},
+    "license": {"name": "CC BY 4.0", "url": LICENSES["CC BY 4.0"]},
+}
+
+
+def _ipywidgets():
+    """ipywidgets, installed into this environment the first time it's needed."""
+    try:
+        import ipywidgets
+    except ImportError:
+        print("Installing ipywidgets (only the first time)…", flush=True)
+        subprocess.run([sys.executable, "-m", "pip", "install", "--quiet", "ipywidgets"], check=True)
+        import ipywidgets
+    return ipywidgets
+
+
+def _get(data: dict, path: tuple):
+    for key in path:
+        data = (data or {}).get(key)
+    return data
+
+
+def _set(data: dict, path: tuple, value) -> None:
+    for key in path[:-1]:
+        data = data.setdefault(key, {})
+    data[path[-1]] = value
+
+
+def _default_collection(l: dict) -> dict:
+    """A new entry for a layer: what can be guessed from the data itself."""
+    names = [n for n, _ in l["columns"]]
+    title_guess = next((n for n in names if n.lower() in ("navn", "name", "tittel", "title")), None)
+    entry = {"id": l.get("default_id", l["id"]), "title": l["layer"], "description": "", "keywords": [],
+             "id_field": l["pk"] or names[0]}
+    if title_guess:
+        entry["title_field"] = title_guess
+    return entry
+
+
+def load_metadata(path, layers: list[dict], source: str = "gpkg", publish_all: bool = True) -> "Metadata":
+    """The metadata from a JSON file, ready to edit with .edit_dataset() and
+    .edit_collections(). With publish_all (part 1), a layer without an entry
+    gets one; otherwise (part 2) only the tables with an entry are published."""
+    return Metadata(ROOT / path, layers, source, publish_all)
+
+
+class Metadata:
+    def __init__(self, path: Path, layers: list[dict], source: str, publish_all: bool):
+        self.path, self.layers, self.source, self.publish_all = path, layers, source, publish_all
+        self.name = path.relative_to(ROOT).as_posix() if ROOT in path.parents else str(path)  # for messages
+        data = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+        self.dataset = data.get("dataset") or copy.deepcopy(EMPTY_DATASET)
+        self.collections = data.get("collections", {})
+        self._refreshers = []   # one per editor on screen
+        self._unpublished = {}  # entries unticked in the form, kept in case they're ticked again
+        if publish_all:
+            added = [l["layer"] for l in layers if l["layer"] not in self.collections]
+            for l in layers:
+                self.collections.setdefault(l["layer"], _default_collection(l))
+            if added:
+                print(f"New in your data: {', '.join(added)}. Describe it in step 4.")
+                self.save()
+
+    def published(self) -> list[dict]:
+        return [l for l in self.layers if l["layer"] in self.collections]
+
+    def save(self) -> None:
+        self.path.write_text(
+            json.dumps({"dataset": self.dataset, "collections": self.collections}, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8")
+
+    def _changed(self, origin) -> None:
+        self.save()
+        for refresh in self._refreshers:
+            refresh(origin)
+
+    def _yaml(self, part: str) -> tuple[str, str]:
+        """What the metadata becomes in pygeoapi-config.yml (its "metadata" or
+        "resources" part), and an error message if it can't become that yet."""
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):  # build_config's own messages
+                config = build_config(self.dataset, self.collections, copy.deepcopy(self.published()), self.source)
+        except SystemExit as err:
+            return "", str(err)
+        except Exception as err:  # e.g. a key removed in the JSON view
+            return "", f"✗ Something is missing or wrong: {err!r}"
+        section = config[part]
+        if part == "resources":  # the collections only, not the processes
+            section = {k: v for k, v in section.items() if v["type"] == "collection"}
+        return yaml.safe_dump({part: section}, sort_keys=False, allow_unicode=True, width=120), ""
+
+    def _editor(self, form, get_data, set_data, refresh_form, yaml_part: str):
+        """The form and the JSON view on two tabs, with the YAML they become below."""
+        from IPython.display import display
+
+        w = _ipywidgets()
+        token = object()  # tells this editor's own changes apart from other editors'
+        json_box = w.Textarea(layout=w.Layout(width="98%", height="420px"), continuous_update=False)
+        json_box.add_class("workshop-json")
+        status = w.HTML("Edit the JSON, then click outside the box to apply it.")
+        # A read-only text box: it shows YAML the same way in every notebook
+        preview = w.Textarea(disabled=True, layout=w.Layout(width="98%", height="320px"))
+        preview.add_class("workshop-json")
+        problem = w.HTML()
+        busy = {"now": False}
+
+        def refresh(origin):
+            busy["now"] = True
+            try:
+                if origin != (token, "json"):
+                    json_box.value = json.dumps(get_data(), indent=2, ensure_ascii=False)
+                if origin != (token, "form"):
+                    refresh_form()
+            finally:
+                busy["now"] = False
+            text, error = self._yaml(yaml_part)
+            preview.value = text
+            problem.value = f'<span style="color: #c0392b">{html.escape(error)}</span>' if error else ""
+
+        def on_json(change):
+            if busy["now"]:
+                return
+            try:
+                set_data(json.loads(change["new"]))
+            except ValueError as err:
+                status.value = f'<span style="color: #c0392b">✗ Not valid JSON, not saved: {html.escape(str(err))}</span>'
+                return
+            status.value = f'<span style="color: #2f7d5b">✓ Saved to {self.name}</span>'
+            self._changed((token, "json"))
+
+        def form_changed():
+            self._changed((token, "form"))
+
+        json_box.observe(on_json, "value")
+        self._refreshers.append(refresh)
+        refresh(None)
+        tabs = w.Tab(children=[form, w.VBox([json_box, status])])
+        tabs.set_title(0, "Form")
+        tabs.set_title(1, "JSON")
+        display(w.VBox([
+            w.HTML("<style>.workshop-json textarea { font-family: monospace; font-size: 12px; }</style>"),
+            tabs,
+            w.HTML(f"<b>What it becomes in <code>config/pygeoapi-config.yml</code></b> "
+                   f"(saved to <code>{self.name}</code> as you go):"),
+            problem,
+            preview,
+        ]))
+        # The form's handlers ignore changes made while the editor refreshes it
+        return form_changed, lambda: busy["now"]
+
+    def edit_dataset(self) -> None:
+        """Step 3: the dataset as a whole."""
+        w = _ipywidgets()
+        style, wide = {"description_width": "160px"}, w.Layout(width="95%")
+        fields = {  # path in the JSON → widget
+            ("title",): w.Text(description="Title", style=style, layout=wide),
+            ("description",): w.Textarea(description="Description", style=style, layout=w.Layout(width="95%", height="90px")),
+            ("keywords",): w.Text(description="Keywords", placeholder="comma, separated", style=style, layout=wide),
+            ("provider", "name"): w.Text(description="Provider", style=style, layout=wide),
+            ("provider", "url"): w.Text(description="Provider's website", style=style, layout=wide),
+            ("contact", "name"): w.Text(description="Contact", style=style, layout=wide),
+            ("contact", "email"): w.Text(description="Contact email", style=style, layout=wide),
+            ("contact", "url"): w.Text(description="Contact website", style=style, layout=wide),
+            ("license", "name"): w.Text(description="Licence", style=style, layout=wide),
+            ("license", "url"): w.Text(description="Licence URL", style=style, layout=wide),
+        }
+        preset = w.Dropdown(description="Pick a licence", options=["", *LICENSES], style=style)
+
+        def refresh_form():
+            for path, widget in fields.items():
+                value = _get(self.dataset, path)
+                widget.value = ", ".join(value) if path == ("keywords",) else (value or "")
+            preset.value = ""
+
+        def read_form(_=None):
+            if refreshing():
+                return
+            for path, widget in fields.items():
+                value = widget.value
+                if path == ("keywords",):
+                    value = [k.strip() for k in value.split(",") if k.strip()]
+                _set(self.dataset, path, value)
+            form_changed()
+
+        def pick_licence(change):
+            if change["new"]:
+                fields[("license", "name")].value = change["new"]
+                fields[("license", "url")].value = LICENSES[change["new"]]
+
+        def set_data(data):
+            self.dataset.clear()
+            self.dataset.update(data)
+
+        form_changed, refreshing = self._editor(w.VBox([*fields.values(), preset]), lambda: self.dataset,
+                                                set_data, refresh_form, "metadata")
+        for widget in fields.values():
+            widget.observe(read_form, "value")
+        preset.observe(pick_licence, "value")
+
+    def edit_collections(self) -> None:
+        """Step 4: one tab per layer (part 1) or table (part 2)."""
+        w = _ipywidgets()
+        style, wide = {"description_width": "160px"}, w.Layout(width="95%")
+        tabs, editors = [], []
+
+        for l in self.layers:
+            columns = [n for n, _ in l["columns"]]
+            ww = {
+                "publish": w.Checkbox(description="Publish this table", indent=False),
+                "id": w.Text(description="id (in the URL)", style=style, layout=wide),
+                "title": w.Text(description="Title", style=style, layout=wide),
+                "description": w.Textarea(description="Description", style=style, layout=w.Layout(width="95%", height="70px")),
+                "keywords": w.Text(description="Keywords", placeholder="comma, separated", style=style, layout=wide),
+                "id_field": w.Dropdown(description="id_field", options=columns, style=style),
+                "title_field": w.Dropdown(description="title_field", options=[("(none)", "")] + [(c, c) for c in columns], style=style),
+                "link_title": w.Text(description="Link: title", placeholder="e.g. the dataset in Geonorge", style=style, layout=wide),
+                "link_href": w.Text(description="Link: URL", style=style, layout=wide),
+            }
+            id_check = w.HTML()
+            notes = w.HTML()
+            items = [ww["id"], id_check, ww["title"], ww["description"], ww["keywords"], ww["id_field"],
+                     ww["title_field"], ww["link_title"], ww["link_href"], notes]
+            if not self.publish_all:
+                items.insert(0, ww["publish"])
+            editors.append((l, ww, id_check, notes))
+            tabs.append(w.VBox(items))
+
+        def refresh_form():
+            for l, ww, id_check, notes in editors:
+                entry = self.collections.get(l["layer"])
+                ww["publish"].value = entry is not None
+                entry = entry or self._unpublished.get(l["layer"]) or _default_collection(l)
+                ww["id"].value = entry.get("id", "")
+                ww["title"].value = entry.get("title", "")
+                ww["description"].value = entry.get("description", "")
+                ww["keywords"].value = ", ".join(entry.get("keywords", []))
+                ww["id_field"].value = entry.get("id_field") if entry.get("id_field") in ww["id_field"].options else None
+                ww["title_field"].value = entry.get("title_field") or ""
+                link = (entry.get("links") or [{}])[0]
+                ww["link_title"].value, ww["link_href"].value = link.get("title", ""), link.get("href", "")
+            decorate()
+
+        def decorate():
+            """What isn't a value: greyed-out fields, the id check, the notes."""
+            for l, ww, id_check, notes in editors:
+                for key, widget in ww.items():
+                    if key != "publish":
+                        widget.disabled = not ww["publish"].value and not self.publish_all
+                ok = bool(VALID_ID.match(ww["id"].value))
+                id_check.value = (f'<span style="color: #2f7d5b">✓ /collections/{html.escape(ww["id"].value)}</span>' if ok else
+                                  f'<span style="color: #c0392b">✗ Lowercase letters, digits and hyphens only, '
+                                  f'e.g. <code>{safe_id(ww["id"].value or l["layer"])}</code></span>')
+                described = ", ".join(f"{n} ({t})" for n, t in l["columns"])
+                entry = self.collections.get(l["layer"]) or self._unpublished.get(l["layer"]) or {}
+                download = entry.get("download", {}).get("area_filters")
+                notes.value = (f'<small>Columns: {html.escape(described)}'
+                               + (f'<br>Download filters: {", ".join(f["label"] for f in download)} '
+                                  '(edit them in the JSON tab)' if download else "") + "</small>")
+
+        def read_form(_=None):
+            if refreshing():
+                return
+            for l, ww, _id_check, _notes in editors:
+                key = l["layer"]
+                if not self.publish_all and not ww["publish"].value:
+                    if key in self.collections:
+                        self._unpublished[key] = self.collections.pop(key)
+                    continue
+                entry = self.collections.get(key) or self._unpublished.pop(key, None) or _default_collection(l)
+                self.collections[key] = entry
+                entry.update(id=ww["id"].value, title=ww["title"].value, description=ww["description"].value,
+                             keywords=[k.strip() for k in ww["keywords"].value.split(",") if k.strip()])
+                if ww["id_field"].value:
+                    entry["id_field"] = ww["id_field"].value
+                if ww["title_field"].value:
+                    entry["title_field"] = ww["title_field"].value
+                else:
+                    entry.pop("title_field", None)
+                others = (entry.get("links") or [])[1:]
+                link = ([{"title": ww["link_title"].value or ww["link_href"].value, "href": ww["link_href"].value}]
+                        if ww["link_href"].value else [])
+                if link or others:
+                    entry["links"] = link + others
+                else:
+                    entry.pop("links", None)
+            decorate()
+            form_changed()
+
+        def set_data(data):
+            self.collections.clear()
+            self.collections.update(data)
+
+        tab = w.Tab(children=tabs)
+        for i, l in enumerate(self.layers):
+            tab.set_title(i, l["layer"])
+        form_changed, refreshing = self._editor(tab, lambda: self.collections, set_data, refresh_form, "resources")
+        for _l, ww, _id_check, _notes in editors:
+            for widget in ww.values():
+                widget.observe(read_form, "value")
 
 
 # ------------------------------------------------------------------

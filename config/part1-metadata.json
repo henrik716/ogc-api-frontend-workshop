@@ -1,0 +1,77 @@
+{
+  "dataset": {
+    "title": "Administrative enheter og byer",
+    "description": "Norges fylker og kommuner fra Kartverkets administrative enheter, med forenklede grenser, og et utvalg norske byer. Laget for OGC API-workshopen, og ikke en autoritativ kilde: bruk Geonorge for de offisielle datasettene.",
+    "keywords": [
+      "administrative enheter",
+      "fylke",
+      "kommune",
+      "by",
+      "workshop"
+    ],
+    "provider": {
+      "name": "Kartverket",
+      "url": "https://www.kartverket.no"
+    },
+    "contact": {
+      "name": "Kartverket",
+      "email": "post@kartverket.no",
+      "url": "https://www.kartverket.no"
+    },
+    "license": {
+      "name": "CC BY 4.0",
+      "url": "https://creativecommons.org/licenses/by/4.0/"
+    }
+  },
+  "collections": {
+    "fylker": {
+      "id": "fylker",
+      "title": "Fylker",
+      "description": "Norges fylker med fylkesnummer, navn, antall kommuner og areal. Grensene er forenklet.",
+      "keywords": [
+        "fylke",
+        "fylkesgrense",
+        "administrativ inndeling"
+      ],
+      "id_field": "fylkesnummer",
+      "title_field": "navn",
+      "links": [
+        {
+          "title": "Administrative enheter – fylker i Geonorge",
+          "href": "https://kartkatalog.geonorge.no/metadata/administrative-enheter-fylker/6093c8a8-fa80-11e6-bc64-92361f002671"
+        }
+      ]
+    },
+    "kommuner": {
+      "id": "kommuner",
+      "title": "Kommuner",
+      "description": "Norges kommuner med kommunenummer, navn, fylke og areal. Grensene er forenklet.",
+      "keywords": [
+        "kommune",
+        "kommunegrense",
+        "administrativ inndeling"
+      ],
+      "id_field": "kommunenummer",
+      "title_field": "navn",
+      "links": [
+        {
+          "title": "Administrative enheter – kommuner i Geonorge",
+          "href": "https://kartkatalog.geonorge.no/metadata/administrative-enheter-kommuner/041f1e6e-bdbc-4091-b48f-8a5990f3cc5b"
+        }
+      ]
+    },
+    "byer": {
+      "id": "byer",
+      "title": "Byer",
+      "description": "Et utvalg på 25 norske byer, med kommunen og fylket de ligger i.",
+      "keywords": [
+        "by",
+        "tettsted",
+        "kommune",
+        "fylke"
+      ],
+      "id_field": "fid",
+      "title_field": "navn"
+    }
+  }
+}

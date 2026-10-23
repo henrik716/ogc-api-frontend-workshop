@@ -22,12 +22,14 @@ Everything runs in a GitHub Codespace, so there's nothing to install.
 
 The placeholder dataset `data/demo.gpkg` has three layers: `fylker` (15 counties), `kommuner` (357 municipalities) and `byer` (25 towns).
 
-**Using your own data:** drag a GeoPackage (`.gpkg`) into the `data/` folder, set `GPKG` in step 2 of the notebook, and fill in the metadata in steps 3–4. Every layer in the GeoPackage becomes a collection in the API. Layers need a CRS with an EPSG code. Any EPSG code works, and the API reprojects on the fly. Git ignores your own files in `data/`, so they aren't committed by accident.
+**Using your own data:** drag a GeoPackage (`.gpkg`) into the `data/` folder, set `GPKG` in step 2 of the notebook, and fill in the metadata in steps 3–4, in a form or as JSON, with a live preview of the YAML it becomes. Every layer in the GeoPackage becomes a collection in the API. Layers need a CRS with an EPSG code. Any EPSG code works, and the API reprojects on the fly. Git ignores your own files in `data/`, so they aren't committed by accident.
 
 Step 2 also has a `SOURCE` setting:
 
 - `"gpkg"` (default): the API reads the GeoPackage directly. Simplest, with no database.
 - `"postgis"`: the notebook loads the GeoPackage into a PostGIS database in the Codespace with `ogr2ogr`, and the API reads from there. This adds vector tiles and downloads, like part 2.
+
+Part 1's step 7 shows how the API works underneath: content negotiation (one URL, a web page or data), the links and conformance classes clients navigate by, and paging with `next` links.
 
 ## Part 2: a PostGIS database
 
@@ -37,17 +39,6 @@ Real services at Kartverket follow the [golden path](https://kartverket.github.i
 - **Choosing what to publish:** only the tables listed in the notebook are published.
 - **What you get on top of part 1:** vector tiles (OGC API – Tiles), processes (OGC API – Processes) that power the frontend's downloads (whole collections, or filtered by county or municipality), and CQL2 filters, sorting and attribute selection.
 - **Styling is the client's job:** vector tiles carry no colours, which is why Kartverket's frontend draws every collection in the same green. An optional step has participants open the same tiles in QGIS and colour the municipalities by county, to show that the API serves data and the client decides how it looks.
-
-Part 1's step 7 shows how the API works underneath: content negotiation (one URL, a web page or data), the links and conformance classes clients navigate by, and paging with `next` links.
-
-## Part 3 (optional): why OGC API?
-
-`part3-why-ogc-api.ipynb` is optional, for people who want to know what's different from what Geonorge already offers, and for live demos. Part 2 points to it in a collapsible box at the end. It needs part 2's API running.
-
-1. **One question, four ways:** "which municipality is Kartverksveien 21 in?", answered by a file from Geonorge's download API (an 11 MB zip of every municipality, extracted months ago), a WMS (a picture, plus text for a pixel), a WFS (an XML request, 300 KB of GML) and the participant's OGC API (one URL, about 2 KB of JSON). A table compares what each cost.
-2. **A picture, or data?** The API's vector tiles drawn with MapLibre in the notebook, from a style (MapLibre style JSON, the format Kartverket's own styles use) that participants edit and re-run. Port 3000 must be public.
-3. **Fresh data:** a town added to PostGIS with SQL shows up in the API and on the map straight away, without a restart.
-4. **Same code, Kartverket's API:** the same requests against Kartverket's demo service.
 
 ### Bringing your own database dump
 
@@ -76,6 +67,26 @@ ogr2ogr -f PGDump my-dump.sql my-data.gpkg -lco SCHEMA=my_schema
 
 Every published table needs a primary key (or another column with unique values) and a geometry column with an EPSG code. Git ignores your own files in `postgis/`, so dumps aren't committed by accident. GitHub doesn't accept files over 100 MB in a repository, so a large dump is something you upload into your own Codespace rather than commit.
 
+## Part 3 (optional): why OGC API?
+
+`part3-why-ogc-api.ipynb` is optional, for people who want to know what's different from what Geonorge already offers, and for live demos. Part 2 points to it in a collapsible box at the end. It needs part 2's API running.
+
+1. **One question, four ways:** "which municipality is Kartverksveien 21 in?", answered by a file from Geonorge's download API, a WMS, a WFS and the participant's OGC API. All four answer Ringerike; the notebook measures what each cost.
+2. **A picture, or data?** The API's vector tiles drawn with MapLibre in the notebook, from a style (MapLibre style JSON, the format Kartverket's own styles use) that participants edit and re-run. Port 3000 must be public.
+3. **Fresh data:** a town added to PostGIS with SQL shows up in the API and on the map straight away, without a restart.
+4. **Same code, Kartverket's API:** the same requests against Kartverket's demo service.
+
+What the four answers cost when measured on 22 October 2026 (the notebook measures it again each time it runs):
+
+| | You send | You get back | Requests | Downloaded |
+|---|---|---|---|---|
+| **File download** (Geonorge's download API) | An order: dataset, area, format, projection | A zip of every municipality in Norway (74 MB of GeoJSON, 27,737 features) to search yourself, extracted 10 December 2025 | 2 | 11 MB |
+| **WMS** | A map area, then a pixel in it | A PNG picture, then text about one pixel | 2 | 42 KB |
+| **WFS** | A 15-line XML request | GML with the full geometry | 1 | 299 KB |
+| **OGC API** | One URL: `?filter=S_INTERSECTS(geometry, POINT(10.249 60.144))` | JSON: Ringerike, 3305 | 1 | 2.3 KB |
+
+The OGC API figure was measured against Kartverket's demo service, which runs the same software as the workshop.
+
 ## What's in here
 
 The layout follows [ogc-api-starter](https://github.com/kartverket/ogc-api-starter), plus the notebooks and the data:
@@ -86,6 +97,7 @@ The layout follows [ogc-api-starter](https://github.com/kartverket/ogc-api-start
 | `part2-postgis.ipynb` | Part 2: publish from PostGIS |
 | `part3-why-ogc-api.ipynb` | Part 3 (optional): OGC API compared with file downloads, WMS and WFS |
 | `config/pygeoapi-config.yml` | The API configuration. The notebooks write it; both images are built with it |
+| `config/part1-metadata.json`, `config/part2-metadata.json` | The metadata participants edit in steps 3–4 (in a form or as JSON); the notebooks turn it into the config |
 | `backend/Dockerfile` | pygeoapi: Kartverket's image + your config + your data |
 | `backend/mvt_postgresql.py` | pygeoapi's vector tile provider, with a fix for zoomed-out tiles (see the notes for facilitators) |
 | `frontend/Dockerfile` | The frontend: Kartverket's image + your config |
@@ -99,7 +111,7 @@ Prefer a terminal? `docker compose up -d --build` and `docker compose down` work
 
 ## Differences from the starter kit
 
-- **Data:** the starter kit's `postgis/` service is a custom image built from a dump. Here it's a plain `postgis/postgis` container that loads `postgis/adm.sql.gz` on first start, and it only runs when a notebook needs it.
+- **Data:** the starter kit's `postgis/` service is a custom image built from a dump. Here it's a plain `postgis/postgis` container that loads `postgis/adm.sql.gz` on first start, and it only starts when a notebook needs it (part 2, or part 1 with `SOURCE = "postgis"`).
 - **GeoPackage mode:** the backend uses pygeoapi's `OGR` provider instead of `PostgreSQL`, and the PostgreSQL-only processes (downloads, distinct values) are left out. The frontend hides the download panel when they're missing.
 - **Collection ids** follow Kartverket's [URL standard](https://kartverket.github.io/ogcapi-docs/docs/url-standard-ogc-api), and the notebooks check them.
 - **No CI/deploy workflows:** the starter kit's build and Argo workflows aren't needed in a Codespace.

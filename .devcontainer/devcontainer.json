@@ -27,5 +27,5 @@
     "3000": { "label": "OGC API", "onAutoForward": "notify" },
     "5001": { "label": "pygeoapi (internal)", "onAutoForward": "ignore" }
   },
-  "postCreateCommand": "python3 -m venv .venv && .venv/bin/pip install --no-cache-dir ipykernel pyyaml pyproj shapely"
+  "postCreateCommand": "python3 -m venv .venv && .venv/bin/pip install --no-cache-dir ipykernel ipywidgets pyyaml pyproj shapely"
 }
