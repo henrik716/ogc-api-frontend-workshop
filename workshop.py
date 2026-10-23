@@ -1358,9 +1358,22 @@ def show_map(style_layers: list[dict], center=(10.5, 60.5), zoom: float = 6) -> 
   css.href = "{MAPLIBRE}.css";
   el.parentNode.insertBefore(css, el);
 
+  // Say what went wrong in the map's place, instead of leaving it blank
+  function fail(message) {{
+    el.style.height = "auto";
+    el.textContent = "⚠ The map could not be drawn: " + message;
+  }}
+
   function draw() {{
-    const map = new maplibregl.Map({{container: el, style: {json.dumps(style)},
-                                     center: {json.dumps(list(center))}, zoom: {zoom}}});
+    if (!window.maplibregl) return fail("MapLibre did not load.");
+    let map;
+    try {{
+      map = new maplibregl.Map({{container: el, style: {json.dumps(style)},
+                                 center: {json.dumps(list(center))}, zoom: {zoom}}});
+    }} catch (err) {{
+      return fail(err.message);
+    }}
+    map.on("error", e => console.error(e.error));
     map.addControl(new maplibregl.NavigationControl());
     // Click a feature to see what the tile holds about it
     map.on("click", e => {{
@@ -1371,11 +1384,20 @@ def show_map(style_layers: list[dict], center=(10.5, 60.5), zoom: float = 6) -> 
   }}
   // Load MapLibre once (another map may already be loading it), then draw
   if (window.maplibregl) return draw();
-  if (window.maplibreWaiting) return window.maplibreWaiting.push(draw);
-  window.maplibreWaiting = [draw];
+  if (window.maplibreQueue) return window.maplibreQueue.push(draw);
+  window.maplibreQueue = [draw];
+  // With ipywidgets installed, VS Code puts RequireJS on the page. MapLibre would
+  // then register with it instead of setting window.maplibregl, so hide it meanwhile
+  const define = window.define;
+  window.define = undefined;
   const js = document.createElement("script");
   js.src = "{MAPLIBRE}.js";
-  js.onload = () => window.maplibreWaiting.forEach(f => f());
+  js.onload = js.onerror = () => {{
+    window.define = define;
+    const waiting = window.maplibreQueue;
+    window.maplibreQueue = null;  // so running the cell again tries again if it failed
+    waiting.forEach(f => f());
+  }};
   document.head.appendChild(js);
 }})();
 </script>"""))
