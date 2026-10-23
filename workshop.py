@@ -1379,7 +1379,7 @@ _EDITOR_SCRIPT = """
       if (!form.elements.extrude.checked && Number(value("width")) > 0) result.push(
         {id: "kommuner-line", type: "line", ...tiles, paint: {"line-color": value("line"), "line-width": Number(value("width"))}});
       if (form.elements.labels.checked) result.push(
-        {id: "kommuner-label", type: "symbol", ...tiles, minzoom: 7,
+        {id: "kommuner-label", type: "symbol", source: "kommuner-navn", minzoom: 7,
          layout: {"text-field": ["get", "navn"], "text-font": ["Open Sans Semibold"], "text-size": 11},
          paint: {"text-halo-color": "#ffffff", "text-halo-width": 1}});
       return result;
@@ -1399,7 +1399,8 @@ _EDITOR_SCRIPT = """
       const result = layers();
       map.setStyle({...style,
         sources: {...style.sources, basemap: {...style.sources.basemap,
-          tiles: ["https://cache.kartverket.no/v1/wmts/1.0.0/" + (basemap === "none" ? "topograatone" : basemap) + "/default/webmercator/{z}/{y}/{x}.png"]}},
+          tiles: ["https://cache.kartverket.no/v1/wmts/1.0.0/" + (basemap === "none" ? "topograatone" : basemap) + "/default/webmercator/{z}/{y}/{x}.png"]},
+          "kommuner-navn": {type: "geojson", data: names}},
         layers: [style.layers[0], ...(basemap === "none" ? [] : [style.layers[1]]), ...result]});
       out.textContent = JSON.stringify(result, null, 2);
 
@@ -1427,6 +1428,52 @@ _EDITOR_SCRIPT = """
     });
     form.elements.colour.value = "#2f7d5b";
     map.once("style.load", () => preset("counties"));
+
+    // Vector tiles cut each municipality at the tile edges, so a label layer on the
+    // tiles names every piece. Instead, name each municipality once: on the biggest
+    // piece of it in the loaded tiles, at a point inside that piece.
+    let names = {type: "FeatureCollection", features: []};
+    let placed = "";
+    function area(ring) {
+      let sum = 0;
+      for (let i = 0, j = ring.length - 1; i < ring.length; j = i++)
+        sum += (ring[j][0] + ring[i][0]) * (ring[j][1] - ring[i][1]);
+      return Math.abs(sum / 2);
+    }
+    function inside(ring) {
+      // The middle of the widest stretch of the ring along the line through its middle
+      const ys = ring.map(p => p[1]);
+      const y = (Math.min(...ys) + Math.max(...ys)) / 2;
+      const xs = [];
+      for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+        const [a, b] = [ring[j], ring[i]];
+        if ((a[1] > y) !== (b[1] > y)) xs.push(a[0] + (y - a[1]) / (b[1] - a[1]) * (b[0] - a[0]));
+      }
+      xs.sort((a, b) => a - b);
+      let best = [ring[0][0], 0];
+      for (let i = 0; i + 1 < xs.length; i += 2)
+        if (xs[i + 1] - xs[i] > best[1]) best = [(xs[i] + xs[i + 1]) / 2, xs[i + 1] - xs[i]];
+      return [best[0], y];
+    }
+    function placeNames() {
+      const biggest = {};
+      for (const f of map.querySourceFeatures("kommuner", {sourceLayer: "kommuner"})) {
+        const polygons = f.geometry.type === "Polygon" ? [f.geometry.coordinates] : f.geometry.coordinates;
+        for (const polygon of polygons) {
+          const size = area(polygon[0]), navn = f.properties.navn;
+          if (!biggest[navn] || size > biggest[navn].size) biggest[navn] = {size, ring: polygon[0]};
+        }
+      }
+      const features = Object.entries(biggest).map(([navn, b]) =>
+        ({type: "Feature", properties: {navn}, geometry: {type: "Point", coordinates: inside(b.ring)}}));
+      const key = JSON.stringify(features);
+      if (key === placed) return;  // nothing new, so don't redraw (which would end in another "idle")
+      placed = key;
+      names = {type: "FeatureCollection", features};
+      const source = map.getSource("kommuner-navn");
+      if (source) source.setData(names);
+    }
+    map.on("idle", placeNames);
 """
 
 
@@ -1436,6 +1483,10 @@ def style_editor(center=(12, 64.5), zoom: float = 4.3) -> None:
     names and 3D. Below the map, the style the controls add up to, as JSON."""
     _draw_map([], center, zoom, controls=_EDITOR_CONTROLS,
               below="<details style='margin-top: 8px'><summary>Show the style as JSON</summary>"
+                    "<p>The names come from <code>kommuner-navn</code>: one point per municipality, which the "
+                    "notebook works out from the tiles. Vector tiles cut each municipality at the tile edges, "
+                    "so names straight from the tiles would repeat in every tile. Real basemaps solve it the "
+                    "same way, with a separate layer of label points.</p>"
                     "<pre style='max-height: 300px; overflow: auto'></pre></details>",
               script=_EDITOR_SCRIPT)
 
