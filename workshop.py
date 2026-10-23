@@ -1312,60 +1312,129 @@ def show_map(style_layers: list[dict], center=(10.5, 60.5), zoom: float = 6) -> 
 
 
 # The controls for style_editor(), and the script that turns them into style layers
-_EDITOR_CONTROLS = """<form style="display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: center; margin-bottom: 8px">
+_EDITOR_CONTROLS = """<style>
+  .style-editor { display: flex; flex-wrap: wrap; gap: 8px 20px; align-items: center; margin-bottom: 10px; font: inherit }
+  .style-editor .presets { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 6px; align-items: center }
+  .style-editor button { font: inherit; cursor: pointer; padding: 3px 10px; border-radius: 12px;
+                         border: 1px solid #8888; background: transparent; color: inherit }
+  .style-editor button:hover { background: #8883 }
+  .style-editor select { font: inherit }
+  .style-editor .legend { display: inline-block; width: 80px; height: 10px; vertical-align: middle; border: 1px solid #8888 }
+</style>
+<form class="style-editor">
+  <div class="presets"><b>Try:</b>
+    <button type="button" data-preset="frontend">Like the frontend</button>
+    <button type="button" data-preset="counties">Counties</button>
+    <button type="button" data-preset="blueprint">Blueprint</button>
+    <button type="button" data-preset="mountains">Big ones in 3D</button>
+  </div>
+  <label>Background map <select name="basemap">
+    <option value="topograatone">Grey</option>
+    <option value="topo">Colour</option>
+    <option value="none">None</option>
+  </select></label>
   <label>Colour by <select name="by">
     <option value="one">One colour</option>
-    <option value="county" selected>County (fylkesnummer)</option>
-    <option value="area">Area (areal_km2)</option>
+    <option value="county">County</option>
+    <option value="area">Area</option>
   </select></label>
-  <label>Colour <input type="color" name="colour" value="#2f7d5b"></label>
-  <label>Fill opacity <input type="range" name="opacity" min="0" max="1" step="0.05" value="0.75"></label>
-  <label>Borders <input type="color" name="line" value="#ffffff"></label>
-  <label>Border width <input type="range" name="width" min="0" max="4" step="0.2" value="0.8"></label>
-  <label><input type="checkbox" name="labels" checked> Names</label>
+  <label class="for-colour">Colour <input type="color" name="colour"></label>
+  <span class="for-area">small <span class="legend"></span> 2000 km²+</span>
+  <button type="button" class="for-county" name="shuffle">🎲 Shuffle colours</button>
+  <label>Opacity <input type="range" name="opacity" min="0" max="1" step="0.05"></label>
+  <label>Borders <input type="color" name="line"> <input type="range" name="width" min="0" max="4" step="0.2"></label>
+  <label><input type="checkbox" name="labels"> Names</label>
+  <label><input type="checkbox" name="extrude"> 3D: height by area</label>
 </form>"""
 
 _EDITOR_SCRIPT = """
     const form = el.querySelector("form");
     const out = el.querySelector("pre");
-    const basemap = style.layers;  // the background and the basemap
+    const PRESETS = {
+      frontend:  {basemap: "topograatone", by: "one", colour: "#3b8f5a", opacity: 0.5, line: "#3b8f5a", width: 1, labels: false, extrude: false},
+      counties:  {basemap: "topograatone", by: "county", opacity: 0.75, line: "#ffffff", width: 0.8, labels: true, extrude: false},
+      blueprint: {basemap: "none", by: "one", colour: "#1f4e8c", opacity: 1, line: "#ffffff", width: 0.6, labels: true, extrude: false},
+      mountains: {basemap: "topograatone", by: "area", colour: "#c0392b", opacity: 0.85, line: "#ffffff", width: 0.4, labels: false, extrude: true},
+    };
+    // A county's hue is its number times `step`, turned by `turn` (degrees round the colour wheel)
+    let step = 37, turn = 0;
+    const show = (selector, visible) => form.querySelectorAll(selector).forEach(e => e.style.display = visible ? "" : "none");
+
     function layers() {
       const value = name => form.elements[name].value;
       const fill = {
         one: value("colour"),
-        // a hue per county, as in STYLE below
-        county: ["to-color", ["concat", "hsl(", ["%", ["*", ["to-number", ["get", "fylkesnummer"]], 37], 360], ", 55%, 70%)"]],
-        // white for the smallest, the chosen colour from 2000 km² and up
+        county: ["to-color", ["concat", "hsl(", ["%", ["+", ["*", ["to-number", ["get", "fylkesnummer"]], step], turn], 360], ", 55%, 70%)"]],
         area: ["interpolate", ["linear"], ["to-number", ["get", "areal_km2"]], 0, "#ffffff", 2000, value("colour")],
       }[value("by")];
-      const result = [
-        {id: "kommuner-fill", type: "fill", source: "kommuner", "source-layer": "kommuner",
-         paint: {"fill-color": fill, "fill-opacity": Number(value("opacity"))}},
-        {id: "kommuner-line", type: "line", source: "kommuner", "source-layer": "kommuner",
-         paint: {"line-color": value("line"), "line-width": Number(value("width"))}},
-      ];
+      const tiles = {source: "kommuner", "source-layer": "kommuner"};
+      const result = [form.elements.extrude.checked
+        ? {id: "kommuner-3d", type: "fill-extrusion", ...tiles,
+           paint: {"fill-extrusion-color": fill, "fill-extrusion-opacity": Number(value("opacity")),
+                   "fill-extrusion-height": ["*", ["to-number", ["get", "areal_km2"]], 20]}}
+        : {id: "kommuner-fill", type: "fill", ...tiles,
+           paint: {"fill-color": fill, "fill-opacity": Number(value("opacity"))}}];
+      if (Number(value("width")) > 0) result.push(
+        {id: "kommuner-line", type: "line", ...tiles, paint: {"line-color": value("line"), "line-width": Number(value("width"))}});
       if (form.elements.labels.checked) result.push(
-        {id: "kommuner-label", type: "symbol", source: "kommuner", "source-layer": "kommuner", minzoom: 7,
-         layout: {"text-field": ["get", "navn"], "text-font": ["Open Sans Semibold"], "text-size": 11}});
+        {id: "kommuner-label", type: "symbol", ...tiles, minzoom: 7,
+         layout: {"text-field": ["get", "navn"], "text-font": ["Open Sans Semibold"], "text-size": 11},
+         paint: {"text-halo-color": "#ffffff", "text-halo-width": 1}});
       return result;
     }
+
     // Redraw the map and show the style the controls add up to
+    let tilted = false;
     function update() {
+      const by = form.elements.by.value;
+      show(".for-colour", by !== "county");
+      show(".for-county", by === "county");
+      show(".for-area", by === "area");
+      el.querySelector(".legend").style.background = "linear-gradient(to right, #ffffff, " + form.elements.colour.value + ")";
+
+      const basemap = form.elements.basemap.value;
       const result = layers();
-      map.setStyle({...style, layers: [...basemap, ...result]});
-      out.textContent = "STYLE = " + JSON.stringify(result, null, 2);
+      map.setStyle({...style,
+        sources: {...style.sources, basemap: {...style.sources.basemap,
+          tiles: ["https://cache.kartverket.no/v1/wmts/1.0.0/" + (basemap === "none" ? "topograatone" : basemap) + "/default/webmercator/{z}/{y}/{x}.png"]}},
+        layers: [style.layers[0], ...(basemap === "none" ? [] : [style.layers[1]]), ...result]});
+      out.textContent = JSON.stringify(result, null, 2);
+
+      // Tilt the map for 3D, and back again
+      const extrude = form.elements.extrude.checked;
+      if (extrude !== tilted) map.easeTo({pitch: extrude ? 50 : 0, duration: 1000});
+      tilted = extrude;
     }
+
+    function preset(name) {
+      for (const [key, value] of Object.entries(PRESETS[name])) {
+        const input = form.elements[key];
+        if (input.type === "checkbox") input.checked = value; else input.value = value;
+      }
+      update();
+    }
+
     form.addEventListener("input", update);
-    map.once("style.load", update);
+    form.querySelectorAll("[data-preset]").forEach(b => b.addEventListener("click", () => preset(b.dataset.preset)));
+    form.elements.shuffle.addEventListener("click", () => {
+      const steps = [37, 53, 71, 97, 131, 151, 173];
+      step = steps[Math.floor(Math.random() * steps.length)];
+      turn = Math.floor(Math.random() * 360);
+      update();
+    });
+    form.elements.colour.value = "#2f7d5b";
+    map.once("style.load", () => preset("counties"));
 """
 
 
-def style_editor(center=(10.5, 60.5), zoom: float = 6) -> None:
-    """The municipalities' vector tiles with controls for colour, opacity, borders
-    and names. Below the map is the style the controls add up to, ready to paste
-    into STYLE."""
+def style_editor(center=(12, 64.5), zoom: float = 4.3) -> None:
+    """The municipalities' vector tiles with controls for the style: presets,
+    colour (one colour, by county or by area), background map, opacity, borders,
+    names and 3D. Below the map, the style the controls add up to, as JSON."""
     _draw_map([], center, zoom, controls=_EDITOR_CONTROLS,
-              below="<pre style='max-height: 300px; overflow: auto'></pre>", script=_EDITOR_SCRIPT)
+              below="<details style='margin-top: 8px'><summary>Show the style as JSON</summary>"
+                    "<pre style='max-height: 300px; overflow: auto'></pre></details>",
+              script=_EDITOR_SCRIPT)
 
 
 def _draw_map(style_layers: list[dict], center, zoom: float, controls: str = "", below: str = "",
