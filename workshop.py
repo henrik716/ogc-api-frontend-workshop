@@ -1342,7 +1342,7 @@ _EDITOR_CONTROLS = """<style>
   <span class="for-area">small <span class="legend"></span> 2000 km²+</span>
   <button type="button" class="for-county" name="shuffle">🎲 Shuffle colours</button>
   <label>Opacity <input type="range" name="opacity" min="0" max="1" step="0.05"></label>
-  <label>Borders <input type="color" name="line"> <input type="range" name="width" min="0" max="4" step="0.2"></label>
+  <label class="for-flat">Borders <input type="color" name="line"> <input type="range" name="width" min="0" max="4" step="0.2"></label>
   <label><input type="checkbox" name="labels"> Names</label>
   <label><input type="checkbox" name="extrude"> 3D: height by area</label>
 </form>"""
@@ -1374,7 +1374,9 @@ _EDITOR_SCRIPT = """
                    "fill-extrusion-height": ["*", ["to-number", ["get", "areal_km2"]], 20]}}
         : {id: "kommuner-fill", type: "fill", ...tiles,
            paint: {"fill-color": fill, "fill-opacity": Number(value("opacity"))}}];
-      if (Number(value("width")) > 0) result.push(
+      // Borders lie flat on the ground, so in 3D they'd show through the blocks;
+      // the blocks' walls show the borders there instead
+      if (!form.elements.extrude.checked && Number(value("width")) > 0) result.push(
         {id: "kommuner-line", type: "line", ...tiles, paint: {"line-color": value("line"), "line-width": Number(value("width"))}});
       if (form.elements.labels.checked) result.push(
         {id: "kommuner-label", type: "symbol", ...tiles, minzoom: 7,
@@ -1390,6 +1392,7 @@ _EDITOR_SCRIPT = """
       show(".for-colour", by !== "county");
       show(".for-county", by === "county");
       show(".for-area", by === "area");
+      show(".for-flat", !form.elements.extrude.checked);
       el.querySelector(".legend").style.background = "linear-gradient(to right, #ffffff, " + form.elements.colour.value + ")";
 
       const basemap = form.elements.basemap.value;
