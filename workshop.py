@@ -119,23 +119,78 @@ def show_request(path: str, accept: str) -> None:
     print(body.strip()[:400] + " …\n")
 
 
+def _text(value) -> str:
+    """A title or description: a plain string, or one per language."""
+    if isinstance(value, dict):
+        return value.get("en") or next(iter(value.values()), "")
+    return value or ""
+
+
+def describe_process(process_id: str) -> None:
+    """Show what a process says about itself at /processes/<id>: what it does,
+    the inputs it takes, and what it sends back. This is all a client needs to
+    call it."""
+    from IPython.display import HTML, display
+
+    p = get_json(f"/processes/{process_id}")
+    print(f"GET /processes/{process_id}\n")
+
+    def schema_text(schema: dict) -> str:
+        if "enum" in schema:
+            return " | ".join(f'"{v}"' for v in schema["enum"])
+        return schema.get("contentMediaType") or schema.get("type", "")
+
+    def table(header: list[str], rows: list[list[str]]) -> str:
+        th = "".join(f"<th style='text-align: left'>{h}</th>" for h in header)
+        trs = "".join("<tr>" + "".join(f"<td style='text-align: left'>{c}</td>" for c in r) + "</tr>" for r in rows)
+        return f"<table><tr>{th}</tr>{trs}</table>"
+
+    inputs = [
+        [f"<code>{html.escape(name)}</code>",
+         "yes" if i.get("minOccurs", 1) >= 1 else "no",
+         f"<code>{html.escape(schema_text(i.get('schema', {})))}</code>",
+         html.escape(_text(i.get("description")) or _text(i.get("title")))]
+        for name, i in p.get("inputs", {}).items()
+    ]
+    outputs = [
+        [f"<code>{html.escape(name)}</code>",
+         f"<code>{html.escape(schema_text(o.get('schema', {})))}</code>",
+         html.escape(_text(o.get("description")) or _text(o.get("title")))]
+        for name, o in p.get("outputs", {}).items()
+    ]
+    display(HTML(
+        f"<p><b>{html.escape(_text(p.get('title')))}</b><br>{html.escape(_text(p.get('description')))}</p>"
+        f"<p><b>Inputs</b></p>{table(['Input', 'Required', 'Type', 'Description'], inputs)}"
+        f"<p><b>Output</b></p>{table(['Output', 'Type', 'Description'], outputs)}"
+    ))
+
+
+_last_process_run = 0.0
+
+
 def run_process(process_id: str, inputs: dict):
-    """Run an OGC API process and return its result.
+    """Run an OGC API process, show the request and the response, and return
+    the result: parsed JSON, or the raw bytes of a file.
 
     Execution is a POST with the inputs as JSON (a browser opening the
     .../execution URL sends a GET, which the API answers with 405 Method Not
     Allowed). Without a 'Prefer: respond-async' header pygeoapi runs it right
-    away and sends the result back: parsed JSON, or the raw bytes of a file.
+    away and sends the result back in the response.
     """
+    global _last_process_run
+    body = json.dumps({"inputs": inputs}, ensure_ascii=False, indent=2)
+    print(f"POST /processes/{process_id}/execution\nContent-Type: application/json\n\n{body}\n")
     req = urllib.request.Request(
         f"http://localhost:5001/processes/{process_id}/execution",
-        data=json.dumps({"inputs": inputs}).encode("utf-8"),
+        data=body.encode("utf-8"),
         headers={"Content-Type": "application/json"},
         method="POST",
     )
+    _last_process_run = time.time()
     try:
         with urllib.request.urlopen(req, timeout=300) as res:
-            content_type, body = res.headers.get_content_type(), res.read()
+            status, reason = res.status, res.reason
+            content_type, result = res.headers.get_content_type(), res.read()
     except urllib.error.HTTPError as err:
         detail = err.read().decode("utf-8", errors="replace")
         try:
@@ -143,7 +198,32 @@ def run_process(process_id: str, inputs: dict):
         except ValueError:
             pass
         raise SystemExit(f"✗ The process '{process_id}' failed ({err.code}): {detail}")
-    return json.loads(body) if content_type == "application/json" else body
+    print(f"→ {status} {reason}, Content-Type: {content_type}, {_size(len(result))} "
+          f"in {_duration(time.time() - _last_process_run)}")
+    if content_type == "application/json":
+        text = result.decode("utf-8")
+        print(text[:300] + (" …" if len(text) > 300 else ""))
+        return json.loads(text)
+    return result
+
+
+def show_server_log() -> None:
+    """Show what the processes logged on the server during the last
+    run_process(): the steps the server took that a client never sees."""
+    since = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(_last_process_run - 1))
+    proc = subprocess.run(
+        ["docker", "compose", "logs", "--no-log-prefix", "--since", since, "backend"],
+        cwd=ROOT, capture_output=True, text=True, encoding="utf-8", errors="replace",
+    )
+    # The process plugins live in /pygeoapi/processes/; pygeoapi's own lines
+    # (requests, config) are left out. Each line is "[time] {file:line} LEVEL - message".
+    lines = [l for l in (proc.stdout + proc.stderr).splitlines() if "/processes/" in l]
+    if not lines:
+        print("(The processes logged nothing this time.)")
+        return
+    print("What the server logged while the process ran:\n")
+    for line in lines:
+        print("  " + re.sub(r"^\[[^\]]*\]\s*\{[^}]*/([^/}]+:\d+)\}", r"\1", line))
 
 
 def wait_until_ready(timeout: int = 120) -> None:
@@ -1178,6 +1258,10 @@ def _size(n: int) -> str:
     return f"{n / 1024 / 1024:.1f} MB" if n > 1024 * 1024 else f"{n / 1024:.1f} KB" if n > 1024 else f"{n} bytes"
 
 
+def _duration(seconds: float) -> str:
+    return f"{seconds:.1f} s" if seconds >= 1 else f"{seconds * 1000:.0f} ms"
+
+
 def fetch(url: str, label: str, data: bytes | None = None, content_type: str | None = None) -> bytes:
     """GET a URL (or POST `data` to it) and return the raw answer. Counts the
     requests, bytes and time under `label`, for compare()."""
@@ -1203,12 +1287,13 @@ def compare() -> None:
     most = max(m["bytes"] for m in _measurements.values())
     rows = "".join(
         f"<tr><td><b>{label}</b></td><td>{m['requests']}</td><td>{', '.join(m['formats'])}</td>"
+        f"<td style='text-align:right'>{_duration(m['seconds'])}</td>"
         f"<td style='text-align:right'>{_size(m['bytes'])}</td>"
         f"<td style='width:40%'><div style='background:#2f7d5b;height:12px;"
         f"width:{max(m['bytes'] / most * 100, 0.3):.1f}%'></div></td></tr>"
         for label, m in _measurements.items()
     )
-    display(HTML("<table><tr><th></th><th>Requests</th><th>Answer as</th><th>Downloaded</th><th></th></tr>"
+    display(HTML("<table><tr><th></th><th>Requests</th><th>Answer as</th><th>Time</th><th>Downloaded</th><th></th></tr>"
                  f"{rows}</table>"))
 
 
