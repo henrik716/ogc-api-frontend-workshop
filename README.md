@@ -8,7 +8,7 @@ Everything runs in a GitHub Codespace, so there's nothing to install.
 
 | | Notebook | |
 |---|---|---|
-| **Part 1** | `part1-geopackage.ipynb` | Publish a GeoPackage as an OGC API – Features service, and see how the API works |
+| **Part 1** | `part1-geopackage.ipynb` | Publish a GeoPackage as an OGC API – Features service, and optionally see how the API works |
 | **Part 2** | `part2-postgis.ipynb` | Publish from a PostGIS database, the setup Kartverket recommends: vector tiles, advanced queries, downloads (processes), styling the tiles yourself, and live data |
 | **Part 3** | `part3-why-ogc-api.ipynb` | Optional, for the curious (and the live demo): how an OGC API differs from file downloads, WMS and WFS |
 
@@ -30,10 +30,10 @@ The placeholder dataset `data/demo.gpkg` has three layers: `fylker` (15 counties
 2. **Your data:** pick the GeoPackage (`GPKG`) and where the API reads it from (`SOURCE`, see below).
 3. **Describe the dataset** and 4. **each collection:** the metadata, in a form or as JSON, with a live preview of the YAML it becomes. The form checks collection ids against Kartverket's URL standard.
 5. **Generate the configuration:** `config/pygeoapi-config.yml`, the same file as in the starter kit.
-6. **Start your API**, and open the frontend.
-7. **How the API works:** content negotiation (one URL, a web page or data), the links and conformance classes clients navigate by, collections and features, and paging with `next` links.
-8. **Open it in other tools** (optional): QGIS, ArcGIS Pro, Excel or Power BI. This step makes port 3000 public and checks it can be reached from outside the Codespace.
-9. **Change something**, and see it in the API.
+6. **Start your API**, and open the frontend from the landing page link.
+7. **Open it in other tools** (optional): QGIS, ArcGIS Pro, Excel or Power BI. This step makes port 3000 public and checks it can be reached from outside the Codespace.
+8. **Change something**, and see it in the API.
+9. **How the API works** (optional): content negotiation (one URL, a web page or data), the links and conformance classes clients navigate by, collections and features, and paging with `next` links.
 
 `SOURCE` in step 2:
 

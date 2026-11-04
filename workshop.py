@@ -1319,6 +1319,10 @@ def show_urls(rows: list[tuple], openable: bool = True) -> None:
     display(HTML(f"<table>{''.join(cells)}</table>"))
 
 
+def show_landing_page() -> None:
+    show_urls([("Landing page", public_url(3000))])
+
+
 def show_links(layers: list[dict]) -> None:
     # One address for everything: the frontend serves the pages and passes
     # every other request (?f=json, /openapi, tiles, ...) on to pygeoapi.
