@@ -14,6 +14,7 @@
       ],
       "settings": {
         "python.defaultInterpreterPath": "${containerWorkspaceFolder}/.venv/bin/python",
+        "jupyter.widgetScriptSources": ["jsdelivr.com", "unpkg.com"],
         "jupyter.kernels.excludePythonEnvironments": ["/usr/bin/python", "/usr/bin/python3", "/usr/local/bin/python", "/usr/local/bin/python3"],
         "workbench.editorAssociations": { "README.md": "vscode.markdown.preview.editor", "*.ipynb": "jupyter-notebook" }
       }

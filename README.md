@@ -24,6 +24,8 @@ Seeing raw text instead of a notebook in `part1-geopackage.ipynb`? Right-click i
 
 The first time you run a cell, VS Code may ask you to pick a kernel: choose **Python Environments → .venv** (marked *Recommended*).
 
+If VS Code says *Widgets require us to download supporting files from a 3rd party website*, click **Enable Downloads**. The forms in the notebooks need them.
+
 ### Costs and safety
 
 - **Costs:** Codespaces is free within GitHub's monthly quota for personal accounts: 120 core hours, which is 60 hours on this workshop's 2-core machine. The workshop uses a few of them. Without a payment method on your GitHub account you can't be charged anything: when the quota runs out, the Codespace just stops.
