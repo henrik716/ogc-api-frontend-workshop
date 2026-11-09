@@ -9,18 +9,26 @@ Everything runs in a GitHub Codespace, so there's nothing to install.
 | | Notebook | |
 |---|---|---|
 | **Part 1** | `part1-geopackage.ipynb` | Publish a GeoPackage as an OGC API – Features service, and optionally see how the API works |
-| **Part 2** | `part2-postgis.ipynb` | Publish from a PostGIS database, the setup Kartverket recommends: vector tiles, advanced queries, downloads (processes), styling the tiles yourself, and live data |
+| **Part 2** | `part2-postgis.ipynb` | Publish from a PostGIS database, the setup Kartverket recommends: vector tiles, advanced queries, styling the tiles yourself, live data, and optionally downloads (processes) |
 | **Part 3** | `part3-why-ogc-api.ipynb` | Optional, for the curious (and the live demo): how an OGC API differs from file downloads, WMS and WFS |
 
 ## Get started
 
 You need a GitHub account. QGIS is optional.
 
-1. Click **Code → Codespaces → Create codespace on main** on this repo's GitHub page.
+1. Click the green **Code** button at the top of this page, pick the **Codespaces** tab, then **Create codespace on main**.
 2. Wait for the Codespace to finish setting up (a couple of minutes). This README and `part1-geopackage.ipynb` open automatically.
-3. Run the notebook cells from top to bottom: click ▶ on each cell, or press **Shift+Enter**. The cells you're meant to edit are marked ✏️. When you're done, part 1 points you to part 2.
+3. Switch to the Codespace's `part1-geopackage.ipynb` tab to start. The notebook explains how to run it. When you're done, part 1 points you to part 2.
+
+Seeing raw text instead of a notebook in `part1-geopackage.ipynb`? Right-click its tab → **Reopen Editor With… → Jupyter Notebook**.
 
 The first time you run a cell, VS Code may ask you to pick a kernel: choose **Python Environments → .venv** (marked *Recommended*).
+
+### Costs and safety
+
+- **Costs:** Codespaces is free within GitHub's monthly quota for personal accounts: 120 core hours, which is 60 hours on this workshop's 2-core machine. The workshop uses a few of them. Without a payment method on your GitHub account you can't be charged anything: when the quota runs out, the Codespace just stops.
+- **When you're done:** the Codespace stops by itself after 30 minutes without use. Delete it at [github.com/codespaces](https://github.com/codespaces) (**…** → **Delete**) when you've finished the workshop.
+- **Public port:** part 1's step 7 and part 2's step 8 make port 3000 public, so QGIS and the map can reach your API. Only the API becomes public, not your Codespace or your files, and it's read-only: nobody can change your data through it. The workshop's data is Kartverket's open administrative units. To make it private again: **Ports** tab → right-click port **3000** → **Port Visibility → Private**.
 
 ## Part 1: a GeoPackage
 
@@ -50,10 +58,10 @@ Real services at Kartverket follow the [golden path](https://kartverket.github.i
 5. **Generate the configuration:** each collection gets a `PostgreSQL` provider and an `MVT-postgresql` provider (the vector tiles). The connection details are `${DB_*}` placeholders, as on SKIP. Kartverket's processes are added at the top.
 6. **Start your API.** The frontend now has tiles and a download panel.
 7. **Advanced queries:** sorting, choosing attributes, CQL2 filters, and how a client finds the tiles.
-8. **Downloads (OGC API – Processes):** a process is a job the server does for you, explained like ordering food: list the processes (the menu), describe one (its order form) and run it (place the order). Then a download step by step: a diagram of what the server does behind the scenes, what it logged, and the file drawn on a map. Optionally, the same request from the frontend in the browser's developer tools. It ends with an exercise to export one municipality's towns as CSV.
-9. **Style the tiles yourself:** vector tiles carry no colours, which is why the frontend draws every collection in the same green. A style editor in the notebook draws the tiles with MapLibre: presets, colour by county or by area, background map, borders, names and 3D, with the MapLibre style JSON the choices add up to. Then, optionally, the same in QGIS. The map loads the tiles from the public address, so this step makes port 3000 public.
-10. **Fresh data:** add a town to PostGIS with SQL, and it shows up in the API and on the map straight away, without a restart.
-11. **How this works on SKIP:** where the `${DB_*}` values come from in production.
+8. **Style the tiles yourself:** vector tiles carry no colours, which is why the frontend draws every collection in the same green. A style editor in the notebook draws the tiles with MapLibre: presets, colour by county or by area, background map, borders, names and 3D, with the MapLibre style JSON the choices add up to. Then, optionally, the same in QGIS: one colour of your own, or one per county. The map loads the tiles from the public address, so this step makes port 3000 public.
+9. **Fresh data:** add a town to PostGIS with SQL, and it shows up in the API and on the map straight away, without a restart.
+10. **How this works on SKIP:** where the `${DB_*}` values come from in production.
+11. **Downloads (OGC API – Processes)** (optional): a process is a job the server does for you, explained like ordering food: list the processes (the menu), describe one (its order form) and run it (place the order). Then a download step by step: a diagram of what the server does behind the scenes, what it logged, and the file drawn on a map. Optionally, the same request from the frontend in the browser's developer tools. It ends with an exercise to export one municipality's towns as CSV.
 
 ## Part 3 (optional): why OGC API?
 
@@ -118,7 +126,7 @@ The layout follows [ogc-api-starter](https://github.com/kartverket/ogc-api-start
 | `part2-postgis.ipynb` | Part 2: publish from PostGIS |
 | `part3-why-ogc-api.ipynb` | Part 3 (optional): OGC API compared with file downloads, WMS and WFS |
 | `workshop.py` | What the notebooks call: reading the data, the metadata editors, writing the config, running Docker, the maps and the style editor |
-| `images/` | The diagrams in part 2's step 8 |
+| `images/` | The diagrams in part 2's step 11 |
 | `config/pygeoapi-config.yml` | The API configuration. The notebooks write it; both images are built with it |
 | `config/part1-metadata.json`, `config/part2-metadata.json` | The metadata participants edit in steps 3–4 (in a form or as JSON); the notebooks turn it into the config |
 | `backend/Dockerfile` | pygeoapi: Kartverket's image + your config + your data |
@@ -145,11 +153,11 @@ Prefer a terminal? `docker compose up -d --build` and `docker compose down` work
 - **Images:** the base images are the same ones the starter kit pins: `datadeling-ogcapi-pygeoapi:pygeoapi-v0.5.1` and `datadeling-ogcapi-frontend:frontend-v0.5.1`, by digest. Both are public, so no `docker login` is needed.
 - **One API at a time:** both notebooks write the same `config/pygeoapi-config.yml`, so whichever ran its "Start your API" step last is what's running. Part 3 needs part 2's API.
 - **Map view:** the frontend image is built with a maximum map extent covering Norway, so data elsewhere will display, but the initial map view is clamped to Norway.
-- **Database:** PostGIS runs in the Codespace with fixed workshop credentials (`postgres`/`qwer1234`, as in the starter kit). Its data survives `stop()` in a Docker volume. `docker compose --profile postgis down -v` wipes it; the next start reloads `adm`. Towns added in part 2's step 10 stay until they're deleted (the commented-out cell at the end of step 10) or the volume is wiped.
-- **Ports:** Codespaces ports are private by default. Part 1's step 8 and part 2's step 9 make port 3000 public with `make_public()`, which runs the GitHub CLI (`gh codespace ports visibility 3000:public`); by hand, it's the Ports tab → right-click the port → Port Visibility → Public. The maps in part 2 (steps 9 and 10) and QGIS need it public. An organisation's Codespaces policy can forbid public ports. Everything goes through that one port: the frontend serves the pages and proxies all API requests to pygeoapi, and pygeoapi's own links point there too.
+- **Database:** PostGIS runs in the Codespace with fixed workshop credentials (`postgres`/`qwer1234`, as in the starter kit). Its data survives `stop()` in a Docker volume. `docker compose --profile postgis down -v` wipes it; the next start reloads `adm`. Towns added in part 2's step 9 stay until they're deleted (the commented-out cell at the end of step 9) or the volume is wiped.
+- **Ports:** Codespaces ports are private by default. Part 1's step 7 and part 2's step 8 make port 3000 public with `make_public()`, which runs the GitHub CLI (`gh codespace ports visibility 3000:public`); by hand, it's the Ports tab → right-click the port → Port Visibility → Public. The maps in part 2 (steps 8 and 9) and QGIS need it public. An organisation's Codespaces policy can forbid public ports. Everything goes through that one port: the frontend serves the pages and proxies all API requests to pygeoapi, and pygeoapi's own links point there too.
 - **A map stays blank or says it couldn't be drawn:** port 3000 is probably private (the cell warns about it), or MapLibre couldn't load from `unpkg.com`. After pulling a change to `workshop.py`, restart the kernel so the notebook picks it up.
-- **QGIS shows nothing:** run `check_qgis(...)` (step 8 of part 1, step 9 of part 2). It requests the API from outside the Codespace, the way QGIS does, reports a private port, and fetches test tiles. The tile URL goes in the **URL** field of a generic vector tile connection; pasted into **Style URL** (or anywhere else), QGIS requests `{z}/{y}/{x}` literally and pygeoapi answers 500.
-- **"Method Not Allowed" on a process:** opening `/processes/<id>/execution` in a browser sends a GET, but processes only run on a POST with the inputs as JSON. Use the frontend's download panel, or `run_process()` as in step 8 of part 2, which also shows the request it sends.
+- **QGIS shows nothing:** run `check_qgis(...)` (step 7 of part 1, step 8 of part 2). It requests the API from outside the Codespace, the way QGIS does, reports a private port, and fetches test tiles. The tile URL goes in the **URL** field (**Source URL** in some QGIS versions) of a generic vector tile connection; pasted into **Style URL** (or anywhere else), QGIS requests `{z}/{y}/{x}` literally and pygeoapi answers 500.
+- **"Method Not Allowed" on a process:** opening `/processes/<id>/execution` in a browser sends a GET, but processes only run on a POST with the inputs as JSON. Use the frontend's download panel, or `run_process()` as in step 11 of part 2, which also shows the request it sends.
 - **Area downloads:** Kartverket's `export-by-area-gpkg` process only knows two kinds of area, `fylke` and `kommune`, and expects the collections `fylker` and `kommuner`.
 - **Patched tile provider:** `backend/mvt_postgresql.py` replaces pygeoapi 0.24.0's `MVT-postgresql` provider in the backend image. Upstream transforms only the four corners of each tile into the storage CRS when it selects features, so in EPSG:25833 the most zoomed-out tiles come out wrong (5 of 357 municipalities at zoom 0, Rana/Lurøy/Træna missing at zoom 2–3; Kartverket's own demo service shows the same). The patch densifies the tile's edges before transforming them, and skips the filter for tiles too big for that (`ST_AsMVTGeom` clips to the tile anyway). The config is unchanged. Check the file against upstream before moving to a newer image.
-- **Internet services:** the maps in part 2 (steps 9 and 10) need Kartverket's basemap (`cache.kartverket.no`) and MapLibre and its fonts (`unpkg.com`, `demotiles.maplibre.org`). Part 3 also uses Geonorge's address API, download API, WMS and WFS, and Kartverket's demo OGC API (`datadeling-ogcapi.atgcp1-dev.kartverket.cloud`, a test environment). If one of them is down, only that cell fails.
+- **Internet services:** the maps in part 2 (steps 8 and 9) need Kartverket's basemap (`cache.kartverket.no`) and MapLibre and its fonts (`unpkg.com`, `demotiles.maplibre.org`). Part 3 also uses Geonorge's address API, download API, WMS and WFS, and Kartverket's demo OGC API (`datadeling-ogcapi.atgcp1-dev.kartverket.cloud`, a test environment). If one of them is down, only that cell fails.
